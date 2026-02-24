@@ -117,6 +117,7 @@ const App: React.FC = () => {
   const [thumbnails, setThumbnails] = useState<string[]>([]);
   const [waveformData, setWaveformData] = useState<number[]>([]);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const [contrastChecks, setContrastChecks] = useState<ContrastCheck[]>([]);
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +135,7 @@ const App: React.FC = () => {
       setContrastChecks([]);
       setTranscription(undefined);
       setError(null);
+      setVideoEl(null);
       snapshotCounterRef.current = 0;
     }
   };
@@ -358,7 +360,7 @@ const App: React.FC = () => {
       <header className="app-header">
         <div className="logo">
           <ScanLine size={24} />
-          <span>Kissd Video Validation Tool</span>
+          <span style={{ color: '#ef4444' }}>Kissd Video Validation Tool</span>
         </div>
         <div className="header-actions">
           <button className="btn btn-secondary" onClick={handleSelectFile}>
@@ -461,6 +463,7 @@ const App: React.FC = () => {
                 subtitles={transcription?.segments}
                 onSnapshot={handleSnapshot}
                 onTimeUpdate={setVideoCurrentTime}
+                onVideoReady={setVideoEl}
               />
 
               {waveformData.length > 0 && (
@@ -468,6 +471,8 @@ const App: React.FC = () => {
                   audioData={waveformData}
                   duration={scanResult.file.duration}
                   currentTime={videoCurrentTime}
+                  videoEl={videoEl}
+                  truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
                 />
               )}
 

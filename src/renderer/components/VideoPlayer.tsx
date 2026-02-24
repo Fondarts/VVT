@@ -38,10 +38,12 @@ interface VideoPlayerProps {
   subtitles?: TranscriptionSegment[];
   onSnapshot?: (time: number) => void;
   onTimeUpdate?: (time: number) => void;
+  onVideoReady?: (el: HTMLVideoElement) => void;
 }
 
 export interface VideoPlayerHandle {
   seekTo: (ms: number) => void;
+  getVideoElement: () => HTMLVideoElement | null;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
@@ -53,6 +55,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   subtitles,
   onSnapshot,
   onTimeUpdate,
+  onVideoReady,
 }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,6 +79,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       if (!video) return;
       video.currentTime = ms / 1000;
       setCurrentTime(ms / 1000);
+    },
+    getVideoElement() {
+      return videoRef.current;
     },
   }));
 
@@ -111,6 +117,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
+      onVideoReady?.(video);
     };
 
     video.addEventListener('timeupdate', handleTimeUpdate);
@@ -120,7 +127,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
     };
-  }, [onTimeUpdate]);
+  }, [onTimeUpdate, onVideoReady]);
 
   // Draw overlays on canvas
   useEffect(() => {
