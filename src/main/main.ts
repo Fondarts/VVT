@@ -137,6 +137,32 @@ function calculateHash(filePath: string): Promise<string> {
   });
 }
 
+// ── Color inference helpers ─────────────────────────────────────
+
+// Color model from pix_fmt — matches MediaInfo "Color space" (YUV / RGB)
+function colorModelFromPixFmt(pixFmt?: string): string {
+  if (!pixFmt) return 'YUV';
+  if (pixFmt.startsWith('rgb') || pixFmt.startsWith('bgr')) return 'RGB';
+  if (pixFmt.startsWith('gray')) return 'Grayscale';
+  return 'YUV';
+}
+
+function inferColorRange(pixFmt?: string): string {
+  return pixFmt?.startsWith('yuvj') ? 'pc' : 'tv';
+}
+
+function inferColorPrimaries(w: number, h: number): string {
+  if (w >= 3840 || h >= 2160) return 'bt2020';
+  if (w >= 1280 || h >= 720)  return 'bt709';
+  return 'smpte170m';
+}
+
+function inferColorTransfer(w: number, h: number): string {
+  if (w >= 3840 || h >= 2160) return 'bt2020-10';
+  if (w >= 1280 || h >= 720)  return 'bt709';
+  return 'smpte170m';
+}
+
 ipcMain.handle('video:scan', async (_, filePath: string) => {
   const ffprobeData = await runFFprobe(filePath);
   const loudness = await analyzeLoudness(filePath);
@@ -186,10 +212,10 @@ ipcMain.handle('video:scan', async (_, filePath: string) => {
     bitRate,
     bitRateFormatted: `${bitRate} kbps`,
     bitDepth: videoStream.bits_per_raw_sample ? parseInt(videoStream.bits_per_raw_sample) : undefined,
-    colorSpace: videoStream.color_space,
-    colorRange: videoStream.color_range,
-    colorPrimaries: videoStream.color_primaries,
-    colorTransfer: videoStream.color_transfer,
+    colorSpace:     colorModelFromPixFmt(videoStream.pix_fmt),
+    colorRange:     videoStream.color_range     || inferColorRange(videoStream.pix_fmt),
+    colorPrimaries: videoStream.color_primaries || inferColorPrimaries(width, height),
+    colorTransfer:  videoStream.color_transfer  || inferColorTransfer(width, height),
     chromaSubsampling: videoStream.pix_fmt?.includes('422') ? '4:2:2' : 
                        videoStream.pix_fmt?.includes('444') ? '4:4:4' : '4:2:0',
     scanType: videoStream.field_order === 'progressive' ? 'Progressive' : 
