@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ScanResult, ValidationCheck, ValidationPreset, ValidationReport } from '../shared/types';
+import type { ScanResult, ValidationCheck, ValidationPreset, ValidationReport, TranscriptionResult } from '../shared/types';
 
 const electronAPI = {
   dialog: {
@@ -33,10 +33,21 @@ const electronAPI = {
   },
   
   ffmpeg: {
-    check: (): Promise<{ ffmpeg: string; ffprobe: string; ffmpegFound: boolean; ffprobeFound: boolean }> => 
+    check: (): Promise<{ ffmpeg: string; ffprobe: string; ffmpegFound: boolean; ffprobeFound: boolean }> =>
       ipcRenderer.invoke('ffmpeg:check'),
-    setPath: (ffmpegPath: string, ffprobePath: string): Promise<boolean> => 
+    setPath: (ffmpegPath: string, ffprobePath: string): Promise<boolean> =>
       ipcRenderer.invoke('ffmpeg:setPath', ffmpegPath, ffprobePath),
+  },
+
+  whisper: {
+    check: (): Promise<{ binaryFound: boolean; binary: string; model: string }> =>
+      ipcRenderer.invoke('whisper:check'),
+    getPath: (): Promise<{ binary: string; model: string }> =>
+      ipcRenderer.invoke('whisper:getPath'),
+    setPath: (binary: string, model: string): Promise<boolean> =>
+      ipcRenderer.invoke('whisper:setPath', binary, model),
+    transcribe: (videoPath: string, workDir: string): Promise<TranscriptionResult> =>
+      ipcRenderer.invoke('whisper:transcribe', videoPath, workDir),
   },
   
   shell: {

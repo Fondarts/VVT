@@ -2,12 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles.css';
-import type { 
-  ScanResult, 
-  ValidationCheck, 
-  ValidationPreset, 
+import type {
+  ScanResult,
+  ValidationCheck,
+  ValidationPreset,
   ValidationReport,
-  AudioLoudness,
+  TranscriptionResult,
 } from '../shared/types';
 
 declare global {
@@ -33,6 +33,12 @@ declare global {
       ffmpeg: {
         check: () => Promise<{ ffmpeg: string; ffprobe: string; ffmpegFound: boolean; ffprobeFound: boolean }>;
         setPath: (ffmpegPath: string, ffprobePath: string) => Promise<boolean>;
+      };
+      whisper: {
+        check: () => Promise<{ binaryFound: boolean; binary: string; model: string }>;
+        getPath: () => Promise<{ binary: string; model: string }>;
+        setPath: (binary: string, model: string) => Promise<boolean>;
+        transcribe: (videoPath: string, workDir: string) => Promise<TranscriptionResult>;
       };
       shell: {
         openPath: (path: string) => Promise<void>;

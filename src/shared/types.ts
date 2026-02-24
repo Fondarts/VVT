@@ -126,6 +126,18 @@ export interface OverlayPreset {
   group?: string;       // for dropdown grouping
 }
 
+export interface TranscriptionSegment {
+  from: number;  // ms
+  to: number;    // ms
+  text: string;
+}
+
+export interface TranscriptionResult {
+  segments: TranscriptionSegment[];
+  fullText: string;
+  language?: string;
+}
+
 export interface ValidationReport {
   timestamp: string;
   presetUsed: string;
@@ -137,6 +149,7 @@ export interface ValidationReport {
   thumbnails: string[];
   audioWaveform: number[];
   outputFolder: string;
+  transcription?: TranscriptionResult;
 }
 
 // FFprobe internal types

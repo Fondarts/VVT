@@ -103,9 +103,9 @@ export const generatePDF = async (
   // ═══════════════════════════════════════════════════════════
   // PAGE HEADER
   // ═══════════════════════════════════════════════════════════
-  doc.setFillColor(...NAVY);
+  doc.setFillColor(0, 0, 0);
   doc.rect(0, 0, PW, 16, 'F');
-  txt('KISSD VIDEO VALIDATION TOOL', M, 10, 9, 'bold', WHITE);
+  txt('KISSD VIDEO VALIDATION TOOL', M, 10, 9, 'bold', [220, 30, 30]);
   y = 22;
 
   // ═══════════════════════════════════════════════════════════
@@ -349,6 +349,49 @@ export const generatePDF = async (
 
       y += 4;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // TRANSCRIPTION (if available)
+  // ═══════════════════════════════════════════════════════════
+  if (report.transcription && report.transcription.segments.length > 0) {
+    pb(40);
+    sectionBar('AUDIO TRANSCRIPTION');
+
+    const segRowH = 7.5;
+    const tsColW  = 28;
+
+    report.transcription.segments.forEach((seg, idx) => {
+      pb(segRowH + 2);
+      if (idx % 2 === 0) { doc.setFillColor(...LIGHT_BG); doc.rect(M, y - 1.5, CW, segRowH, 'F'); }
+
+      const rowY = y + segRowH / 2 + 0.5;
+
+      // Timestamp
+      const from = seg.from;
+      const totalSec = Math.floor(from / 1000);
+      const mm  = Math.floor(totalSec / 60);
+      const ss  = totalSec % 60;
+      const ff  = Math.floor((from % 1000) / 10);
+      const ts  = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(ff).padStart(2, '0')}`;
+
+      txt(ts, M + 2, rowY, 7, 'bold', ([80, 130, 200] as [number, number, number]));
+
+      // Text (truncate if too long)
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...DARK);
+      let segText = seg.text;
+      const maxW = CW - tsColW - 4;
+      while (doc.getTextWidth(segText) > maxW && segText.length > 4) {
+        segText = segText.slice(0, -4) + '…';
+      }
+      doc.text(segText, M + tsColW, rowY);
+
+      y += segRowH;
+    });
+
+    y += 6;
   }
 
   // ═══════════════════════════════════════════════════════════

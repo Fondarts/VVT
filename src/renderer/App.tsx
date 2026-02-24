@@ -28,6 +28,8 @@ import { ContrastChecker } from './components/ContrastChecker';
 import { ReportHeader } from './components/ReportHeader';
 import { ThumbnailGrid } from './components/ThumbnailGrid';
 import { Waveform } from './components/Waveform';
+import { TranscriptionPanel } from './components/TranscriptionPanel';
+import type { TranscriptionResult } from '../shared/types';
 
 interface CustomPresetForm {
   name: string;
@@ -82,6 +84,7 @@ const App: React.FC = () => {
   const [waveformData, setWaveformData] = useState<number[]>([]);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [contrastChecks, setContrastChecks] = useState<ContrastCheck[]>([]);
+  const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const snapshotCounterRef = useRef(0);
 
@@ -94,6 +97,7 @@ const App: React.FC = () => {
       setThumbnails([]);
       setWaveformData([]);
       setContrastChecks([]);
+      setTranscription(undefined);
       setError(null);
       snapshotCounterRef.current = 0;
     }
@@ -166,6 +170,7 @@ const App: React.FC = () => {
     thumbnails,
     audioWaveform: waveformData,
     outputFolder,
+    transcription,
   });
 
   const handleExportPDF = async () => {
@@ -351,6 +356,13 @@ const App: React.FC = () => {
                   currentTime={videoCurrentTime}
                 />
               )}
+
+              <TranscriptionPanel
+                filePath={filePath!}
+                outputFolder={outputFolder}
+                onTranscriptionDone={setTranscription}
+                onSeek={_ms => {/* seek handled by VideoPlayer ref if needed */}}
+              />
 
               <DetailTables scanResult={scanResult} />
 

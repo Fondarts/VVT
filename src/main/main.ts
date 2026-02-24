@@ -12,6 +12,12 @@ import {
   setFFmpegPaths,
   getFFmpegPaths,
 } from './ffmpeg-integration';
+import {
+  detectWhisperPath,
+  setWhisperPaths,
+  getWhisperPaths,
+  transcribeVideo,
+} from './whisper-integration';
 import type {
   ScanResult,
   ValidationCheck,
@@ -401,6 +407,23 @@ ipcMain.handle('ffmpeg:check', async () => {
 ipcMain.handle('ffmpeg:setPath', async (_, ffmpegPath: string, ffprobePath: string) => {
   setFFmpegPaths(ffmpegPath, ffprobePath);
   return true;
+});
+
+ipcMain.handle('whisper:check', async () => {
+  return detectWhisperPath();
+});
+
+ipcMain.handle('whisper:setPath', async (_, binary: string, model: string) => {
+  setWhisperPaths(binary, model);
+  return true;
+});
+
+ipcMain.handle('whisper:getPath', async () => {
+  return getWhisperPaths();
+});
+
+ipcMain.handle('whisper:transcribe', async (_, videoPath: string, workDir: string) => {
+  return transcribeVideo(videoPath, workDir);
 });
 
 // App events
