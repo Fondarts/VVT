@@ -39,6 +39,7 @@ declare global {
         getPath: () => Promise<{ binary: string; model: string }>;
         setPath: (binary: string, model: string) => Promise<boolean>;
         transcribe: (videoPath: string, workDir: string) => Promise<TranscriptionResult>;
+        saveSRT: (segments: TranscriptionResult['segments'], outputPath: string) => Promise<string>;
       };
       shell: {
         openPath: (path: string) => Promise<void>;

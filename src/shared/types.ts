@@ -38,6 +38,7 @@ export interface AudioMetadata {
   channels: number;
   channelLayout: string;
   bitDepth?: number;
+  bitRate?: number;
   lufs: number;
   truePeak: number;
 }
@@ -104,10 +105,16 @@ export interface ValidationPreset {
   minBitrate?: number;
   maxBitrate?: number;
   maxBitrateMbps?: number;
+  minBitrateMbps?: number;
+  bitrateMode?: 'cbr' | 'vbr';
   requireFastStart?: boolean;
   loudnessTarget?: number;
   loudnessTolerance?: number;
   truePeakMax?: number;
+  aspectRatios?: string[];    // e.g. ['16:9', '4:3']
+  maxFileSizeMb?: number;
+  minAudioKbps?: number;
+  audioBitDepth?: number;
 }
 
 export interface OverlayPreset {

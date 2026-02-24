@@ -17,6 +17,7 @@ import {
   setWhisperPaths,
   getWhisperPaths,
   transcribeVideo,
+  saveSRT,
 } from './whisper-integration';
 import type {
   ScanResult,
@@ -30,6 +31,28 @@ import type {
 
 // Keep a global reference of the window object
 let mainWindow: BrowserWindow | null = null;
+
+// ── Persistent config ────────────────────────────────────────────
+function configPath() {
+  return path.join(app.getPath('userData'), 'advalify-config.json');
+}
+
+function loadSavedConfig() {
+  try {
+    const raw = fs.readFileSync(configPath(), 'utf-8');
+    const cfg = JSON.parse(raw) as { whisperBinary?: string; whisperModel?: string };
+    if (cfg.whisperBinary || cfg.whisperModel) {
+      setWhisperPaths(cfg.whisperBinary ?? '', cfg.whisperModel ?? '');
+    }
+  } catch { /* file doesn't exist yet */ }
+}
+
+function persistConfig() {
+  try {
+    const { binary, model } = getWhisperPaths();
+    fs.writeFileSync(configPath(), JSON.stringify({ whisperBinary: binary, whisperModel: model }), 'utf-8');
+  } catch { /* non-fatal */ }
+}
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -227,9 +250,10 @@ ipcMain.handle('video:scan', async (_, filePath: string) => {
     sampleRate: parseInt(audioStream.sample_rate || '0'),
     channels: audioStream.channels || 0,
     channelLayout: audioStream.channel_layout || 'unknown',
-    bitDepth: audioStream.sample_fmt?.includes('16') ? 16 : 
-              audioStream.sample_fmt?.includes('24') ? 24 : 
+    bitDepth: audioStream.sample_fmt?.includes('16') ? 16 :
+              audioStream.sample_fmt?.includes('24') ? 24 :
               audioStream.sample_fmt?.includes('32') ? 32 : undefined,
+    bitRate: audioStream.bit_rate ? parseInt(audioStream.bit_rate) : undefined,
     lufs: parseFloat(parseFloat(String(loudness.input_i)).toFixed(1)),
     truePeak: parseFloat(parseFloat(String(loudness.input_tp)).toFixed(1)),
   } : undefined;
@@ -360,6 +384,64 @@ ipcMain.handle('validation:run', async (_, scanResult: ScanResult, preset: Valid
     detected: scanResult.video.chromaSubsampling,
   });
 
+  // Aspect ratio check
+  if (preset.aspectRatios && preset.aspectRatios.length > 0) {
+    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+    const d = gcd(scanResult.video.width, scanResult.video.height);
+    const detectedAR = `${scanResult.video.width / d}:${scanResult.video.height / d}`;
+    const arPass = preset.aspectRatios.some(ar => ar.trim() === detectedAR);
+    checks.push({
+      id: 'aspect-ratio',
+      name: 'Aspect Ratio',
+      category: 'video',
+      status: arPass ? 'pass' : 'warn',
+      message: detectedAR,
+      detected: detectedAR,
+      expected: preset.aspectRatios.join(', '),
+    });
+  }
+
+  // Bitrate checks
+  if (preset.maxBitrateMbps != null) {
+    const mbps = scanResult.video.bitRate / 1_000_000;
+    checks.push({
+      id: 'video-bitrate-max',
+      name: 'Video Bitrate (max)',
+      category: 'video',
+      status: mbps <= preset.maxBitrateMbps ? 'pass' : 'warn',
+      message: `${mbps.toFixed(2)} Mbps`,
+      detected: `${mbps.toFixed(2)} Mbps`,
+      expected: `≤ ${preset.maxBitrateMbps} Mbps`,
+    });
+  }
+
+  if (preset.minBitrateMbps != null) {
+    const mbps = scanResult.video.bitRate / 1_000_000;
+    checks.push({
+      id: 'video-bitrate-min',
+      name: 'Video Bitrate (min)',
+      category: 'video',
+      status: mbps >= preset.minBitrateMbps ? 'pass' : 'warn',
+      message: `${mbps.toFixed(2)} Mbps`,
+      detected: `${mbps.toFixed(2)} Mbps`,
+      expected: `≥ ${preset.minBitrateMbps} Mbps`,
+    });
+  }
+
+  // File size check
+  if (preset.maxFileSizeMb != null) {
+    const fileMb = scanResult.file.sizeBytes / (1024 * 1024);
+    checks.push({
+      id: 'file-size',
+      name: 'File Size',
+      category: 'container',
+      status: fileMb <= preset.maxFileSizeMb ? 'pass' : 'fail',
+      message: `${fileMb.toFixed(1)} MB`,
+      detected: `${fileMb.toFixed(1)} MB`,
+      expected: `≤ ${preset.maxFileSizeMb} MB`,
+    });
+  }
+
   // Audio checks
   if (scanResult.audio) {
     const lufsInRange = scanResult.audio.lufs >= -16 && scanResult.audio.lufs <= -14;
@@ -386,10 +468,62 @@ ipcMain.handle('validation:run', async (_, scanResult: ScanResult, preset: Valid
       id: 'audio-codec',
       name: 'Audio Codec',
       category: 'audio',
-      status: preset.allowedAudioCodecs?.includes(scanResult.audio.codec.toLowerCase()) ? 'pass' : 'warn',
+      status: preset.allowedAudioCodecs && preset.allowedAudioCodecs.length > 0
+        ? (preset.allowedAudioCodecs.includes(scanResult.audio.codec.toLowerCase()) ? 'pass' : 'warn')
+        : 'pass',
       message: scanResult.audio.codec.toUpperCase(),
       detected: scanResult.audio.codec,
+      expected: preset.allowedAudioCodecs?.join(', ').toUpperCase(),
     });
+
+    if (preset.audioSampleRate != null) {
+      checks.push({
+        id: 'audio-sample-rate',
+        name: 'Audio Sample Rate',
+        category: 'audio',
+        status: scanResult.audio.sampleRate === preset.audioSampleRate ? 'pass' : 'warn',
+        message: `${scanResult.audio.sampleRate} Hz`,
+        detected: `${scanResult.audio.sampleRate} Hz`,
+        expected: `${preset.audioSampleRate} Hz`,
+      });
+    }
+
+    if (preset.audioChannels != null) {
+      checks.push({
+        id: 'audio-channels',
+        name: 'Audio Channels',
+        category: 'audio',
+        status: scanResult.audio.channels === preset.audioChannels ? 'pass' : 'warn',
+        message: `${scanResult.audio.channels} ch (${scanResult.audio.channelLayout})`,
+        detected: `${scanResult.audio.channels}`,
+        expected: `${preset.audioChannels}`,
+      });
+    }
+
+    if (preset.minAudioKbps != null && scanResult.audio.bitRate != null) {
+      const kbps = scanResult.audio.bitRate / 1000;
+      checks.push({
+        id: 'audio-bitrate',
+        name: 'Audio Bitrate (min)',
+        category: 'audio',
+        status: kbps >= preset.minAudioKbps ? 'pass' : 'warn',
+        message: `${kbps.toFixed(0)} kbps`,
+        detected: `${kbps.toFixed(0)} kbps`,
+        expected: `≥ ${preset.minAudioKbps} kbps`,
+      });
+    }
+
+    if (preset.audioBitDepth != null && scanResult.audio.bitDepth != null) {
+      checks.push({
+        id: 'audio-bit-depth',
+        name: 'Audio Bit Depth',
+        category: 'audio',
+        status: scanResult.audio.bitDepth === preset.audioBitDepth ? 'pass' : 'warn',
+        message: `${scanResult.audio.bitDepth}-bit`,
+        detected: `${scanResult.audio.bitDepth}`,
+        expected: `${preset.audioBitDepth}-bit`,
+      });
+    }
   }
 
   return checks;
@@ -441,6 +575,7 @@ ipcMain.handle('whisper:check', async () => {
 
 ipcMain.handle('whisper:setPath', async (_, binary: string, model: string) => {
   setWhisperPaths(binary, model);
+  persistConfig();
   return true;
 });
 
@@ -452,8 +587,13 @@ ipcMain.handle('whisper:transcribe', async (_, videoPath: string, workDir: strin
   return transcribeVideo(videoPath, workDir);
 });
 
+ipcMain.handle('whisper:saveSRT', async (_, segments: { from: number; to: number; text: string }[], outputPath: string) => {
+  return saveSRT(segments, outputPath);
+});
+
 // App events
 app.whenReady().then(() => {
+  loadSavedConfig();
   createMainWindow();
 });
 

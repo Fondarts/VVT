@@ -22,6 +22,7 @@ import { validationPresets, overlayPresets } from '../shared/presets';
 import { generatePDF, generateJSON } from './utils/pdfGenerator';
 import { validateAgainstPreset } from './utils/validation';
 import { VideoPlayer } from './components/VideoPlayer';
+import type { VideoPlayerHandle } from './components/VideoPlayer';
 import { CheckResults } from './components/CheckResults';
 import { DetailTables } from './components/DetailTables';
 import { ContrastChecker } from './components/ContrastChecker';
@@ -33,12 +34,26 @@ import type { TranscriptionResult } from '../shared/types';
 
 interface CustomPresetForm {
   name: string;
+  // Container
   containerFormats: string;
-  videoCodecs: string;
-  chromaSubsampling: string;
-  frameRates: string;
-  requireProgressive: boolean;
   requireFastStart: boolean;
+  maxFileSizeMb: string;
+  // Video
+  videoCodecs: string;
+  resolutions: string;
+  aspectRatios: string;
+  frameRates: string;
+  chromaSubsampling: string;
+  requireProgressive: boolean;
+  maxBitrateMbps: string;
+  minBitrateMbps: string;
+  bitrateMode: 'cbr' | 'vbr' | 'any';
+  // Audio
+  audioCodecs: string;
+  minAudioKbps: string;
+  audioBitDepth: string;
+  audioSampleRate: string;
+  audioChannels: string;
   loudnessTarget: string;
   loudnessTolerance: string;
   truePeakMax: string;
@@ -47,11 +62,22 @@ interface CustomPresetForm {
 const defaultForm: CustomPresetForm = {
   name: '',
   containerFormats: 'mp4, mov',
-  videoCodecs: 'h264, hevc',
-  chromaSubsampling: '4:2:0',
-  frameRates: '23.976, 24, 25, 29.97, 30, 50, 59.94, 60',
-  requireProgressive: true,
   requireFastStart: false,
+  maxFileSizeMb: '',
+  videoCodecs: 'h264, hevc',
+  resolutions: '1920x1080, 1280x720',
+  aspectRatios: '16:9',
+  frameRates: '23.976, 24, 25, 29.97, 30, 50, 59.94, 60',
+  chromaSubsampling: '4:2:0',
+  requireProgressive: true,
+  maxBitrateMbps: '',
+  minBitrateMbps: '',
+  bitrateMode: 'any',
+  audioCodecs: '',
+  minAudioKbps: '',
+  audioBitDepth: '',
+  audioSampleRate: '',
+  audioChannels: '',
   loudnessTarget: '-14',
   loudnessTolerance: '1',
   truePeakMax: '-1',
@@ -87,6 +113,7 @@ const App: React.FC = () => {
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const snapshotCounterRef = useRef(0);
+  const videoPlayerRef = useRef<VideoPlayerHandle>(null);
 
   const handleSelectFile = async () => {
     const path = await window.electronAPI.dialog.openFile();
@@ -220,16 +247,34 @@ const App: React.FC = () => {
   const saveCustomPreset = () => {
     if (!customForm.name.trim()) return;
 
+    // Parse resolutions like "1920x1080, 1280x720"
+    const parsedResolutions = customForm.resolutions
+      .split(',').map(s => s.trim()).filter(Boolean)
+      .map(s => { const [w, h] = s.split('x').map(Number); return w && h ? { width: w, height: h, label: `${w}x${h}` } : null; })
+      .filter(Boolean) as { width: number; height: number; label: string }[];
+
     const newPreset: ValidationPreset = {
       id: `custom-${Date.now()}`,
       name: customForm.name.trim(),
       description: 'Custom preset',
       containerFormats: customForm.containerFormats.split(',').map(s => s.trim()).filter(Boolean),
       videoCodecs: customForm.videoCodecs.split(',').map(s => s.trim()).filter(Boolean),
+      allowedVideoCodecs: customForm.videoCodecs.split(',').map(s => s.trim()).filter(Boolean),
+      resolutions: parsedResolutions.length > 0 ? parsedResolutions : undefined,
+      aspectRatios: customForm.aspectRatios.split(',').map(s => s.trim()).filter(Boolean),
       frameRates: customForm.frameRates.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n)),
       requireProgressive: customForm.requireProgressive,
       chromaSubsampling: customForm.chromaSubsampling,
       requireFastStart: customForm.requireFastStart,
+      maxBitrateMbps: customForm.maxBitrateMbps ? parseFloat(customForm.maxBitrateMbps) : undefined,
+      minBitrateMbps: customForm.minBitrateMbps ? parseFloat(customForm.minBitrateMbps) : undefined,
+      bitrateMode: customForm.bitrateMode !== 'any' ? customForm.bitrateMode : undefined,
+      maxFileSizeMb: customForm.maxFileSizeMb ? parseFloat(customForm.maxFileSizeMb) : undefined,
+      allowedAudioCodecs: customForm.audioCodecs.split(',').map(s => s.trim()).filter(Boolean),
+      minAudioKbps: customForm.minAudioKbps ? parseFloat(customForm.minAudioKbps) : undefined,
+      audioBitDepth: customForm.audioBitDepth ? parseInt(customForm.audioBitDepth) : undefined,
+      audioSampleRate: customForm.audioSampleRate ? parseInt(customForm.audioSampleRate) : undefined,
+      audioChannels: customForm.audioChannels ? parseInt(customForm.audioChannels) : undefined,
       loudnessTarget: parseFloat(customForm.loudnessTarget) || -14,
       loudnessTolerance: parseFloat(customForm.loudnessTolerance) || 1,
       truePeakMax: parseFloat(customForm.truePeakMax) || -1,
@@ -341,10 +386,12 @@ const App: React.FC = () => {
               />
 
               <VideoPlayer
+                ref={videoPlayerRef}
                 filePath={filePath!}
                 videoWidth={scanResult.video.width}
                 videoHeight={scanResult.video.height}
                 frameRate={scanResult.video.frameRate}
+                subtitles={transcription?.segments}
                 onSnapshot={handleSnapshot}
                 onTimeUpdate={setVideoCurrentTime}
               />
@@ -361,7 +408,7 @@ const App: React.FC = () => {
                 filePath={filePath!}
                 outputFolder={outputFolder}
                 onTranscriptionDone={setTranscription}
-                onSeek={_ms => {/* seek handled by VideoPlayer ref if needed */}}
+                onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
               />
 
               <DetailTables scanResult={scanResult} />
@@ -447,8 +494,9 @@ const App: React.FC = () => {
               border: '1px solid var(--border-color)',
               borderRadius: '12px',
               padding: '24px',
-              width: '480px',
-              maxHeight: '80vh',
+              width: '640px',
+              maxWidth: 'calc(100vw - 48px)',
+              maxHeight: '90vh',
               overflowY: 'auto',
             }}
           >
@@ -462,7 +510,9 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+              {/* Name */}
               <ModalField label="Preset Name *">
                 <input
                   className="input"
@@ -474,98 +524,216 @@ const App: React.FC = () => {
                 />
               </ModalField>
 
-              <ModalField label="Container formats" hint="comma-separated: mp4, mov">
-                <input
-                  className="input"
-                  type="text"
+              {/* ── Container ── */}
+              <ModalSection title="Container">
+                <MultiSelectInput
+                  label="Formats"
+                  hint="click to pick"
                   value={customForm.containerFormats}
-                  onChange={e => updateForm('containerFormats', e.target.value)}
-                  style={{ width: '100%' }}
+                  onChange={v => updateForm('containerFormats', v)}
+                  options={[
+                    { label: 'MP4', value: 'mp4' }, { label: 'MOV', value: 'mov' },
+                    { label: 'MKV', value: 'mkv' }, { label: 'WebM', value: 'webm' },
+                    { label: 'AVI', value: 'avi' }, { label: 'MXF', value: 'mxf' },
+                    { label: 'TS', value: 'ts' },   { label: 'M2TS', value: 'm2ts' },
+                  ]}
                 />
-              </ModalField>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <ModalField label="Max file size" hint="MB">
+                    <input className="input" type="number" min="0"
+                      value={customForm.maxFileSizeMb}
+                      onChange={e => updateForm('maxFileSizeMb', e.target.value)}
+                      placeholder="e.g. 500"
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '2px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={customForm.requireFastStart}
+                        onChange={e => updateForm('requireFastStart', e.target.checked)} />
+                      Require fast start
+                    </label>
+                  </div>
+                </div>
+              </ModalSection>
 
-              <ModalField label="Video codecs" hint="comma-separated: h264, hevc">
-                <input
-                  className="input"
-                  type="text"
-                  value={customForm.videoCodecs}
-                  onChange={e => updateForm('videoCodecs', e.target.value)}
-                  style={{ width: '100%' }}
+              {/* ── Video ── */}
+              <ModalSection title="Video">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <MultiSelectInput
+                    label="Codecs"
+                    value={customForm.videoCodecs}
+                    onChange={v => updateForm('videoCodecs', v)}
+                    options={[
+                      { label: 'H.264', value: 'h264' }, { label: 'HEVC', value: 'hevc' },
+                      { label: 'AV1', value: 'av1' },    { label: 'VP9', value: 'vp9' },
+                      { label: 'ProRes', value: 'prores' }, { label: 'DNxHD', value: 'dnxhd' },
+                      { label: 'MPEG-2', value: 'mpeg2video' }, { label: 'H.265', value: 'h265' },
+                    ]}
+                  />
+                  <MultiSelectInput
+                    label="Resolutions"
+                    value={customForm.resolutions}
+                    onChange={v => updateForm('resolutions', v)}
+                    options={[
+                      { label: '1920×1080', value: '1920x1080' }, { label: '3840×2160', value: '3840x2160' },
+                      { label: '1280×720',  value: '1280x720'  }, { label: '2560×1440', value: '2560x1440' },
+                      { label: '4096×2160', value: '4096x2160' }, { label: '720×576',   value: '720x576'   },
+                      { label: '720×480',   value: '720x480'   }, { label: '1080×1920', value: '1080x1920' },
+                    ]}
+                  />
+                  <MultiSelectInput
+                    label="Aspect ratios"
+                    value={customForm.aspectRatios}
+                    onChange={v => updateForm('aspectRatios', v)}
+                    options={[
+                      { label: '16:9', value: '16:9' }, { label: '4:3', value: '4:3' },
+                      { label: '1:1',  value: '1:1'  }, { label: '9:16', value: '9:16' },
+                      { label: '21:9', value: '21:9' }, { label: '4:5', value: '4:5' },
+                      { label: '2:3',  value: '2:3'  }, { label: '3:2', value: '3:2' },
+                    ]}
+                  />
+                  <MultiSelectInput
+                    label="Frame rates"
+                    value={customForm.frameRates}
+                    onChange={v => updateForm('frameRates', v)}
+                    options={[
+                      { label: '23.976', value: '23.976' }, { label: '24',     value: '24'    },
+                      { label: '25',     value: '25'     }, { label: '29.97',  value: '29.97' },
+                      { label: '30',     value: '30'     }, { label: '48',     value: '48'    },
+                      { label: '50',     value: '50'     }, { label: '59.94',  value: '59.94' },
+                      { label: '60',     value: '60'     },
+                    ]}
+                  />
+                  <ModalField label="Chroma subsampling">
+                    <select className="select"
+                      value={customForm.chromaSubsampling}
+                      onChange={e => updateForm('chromaSubsampling', e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="4:2:0">4:2:0</option>
+                      <option value="4:2:2">4:2:2</option>
+                      <option value="4:4:4">4:4:4</option>
+                    </select>
+                  </ModalField>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'flex-end', paddingBottom: '2px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={customForm.requireProgressive}
+                        onChange={e => updateForm('requireProgressive', e.target.checked)} />
+                      Require progressive
+                    </label>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                  <ModalField label="Max bitrate" hint="Mbps">
+                    <input className="input" type="number" min="0" step="0.5"
+                      value={customForm.maxBitrateMbps}
+                      onChange={e => updateForm('maxBitrateMbps', e.target.value)}
+                      placeholder="e.g. 20"
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <ModalField label="Min bitrate" hint="Mbps">
+                    <input className="input" type="number" min="0" step="0.5"
+                      value={customForm.minBitrateMbps}
+                      onChange={e => updateForm('minBitrateMbps', e.target.value)}
+                      placeholder="e.g. 5"
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <ModalField label="Bitrate mode">
+                    <select className="select"
+                      value={customForm.bitrateMode}
+                      onChange={e => updateForm('bitrateMode', e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="any">Any</option>
+                      <option value="cbr">CBR (Constant)</option>
+                      <option value="vbr">VBR (Variable)</option>
+                    </select>
+                  </ModalField>
+                </div>
+              </ModalSection>
+
+              {/* ── Audio ── */}
+              <ModalSection title="Audio">
+                <MultiSelectInput
+                  label="Codecs"
+                  value={customForm.audioCodecs}
+                  onChange={v => updateForm('audioCodecs', v)}
+                  options={[
+                    { label: 'AAC',    value: 'aac'   }, { label: 'MP3',  value: 'mp3'  },
+                    { label: 'PCM',    value: 'pcm_s16le' }, { label: 'AC-3', value: 'ac3'  },
+                    { label: 'E-AC-3', value: 'eac3'  }, { label: 'Opus', value: 'opus' },
+                    { label: 'FLAC',   value: 'flac'  }, { label: 'ALAC', value: 'alac' },
+                  ]}
                 />
-              </ModalField>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 82px 96px 88px', gap: '12px' }}>
+                  <ModalField label="Min kbps">
+                    <input className="input" type="number" min="0"
+                      value={customForm.minAudioKbps}
+                      onChange={e => updateForm('minAudioKbps', e.target.value)}
+                      placeholder="e.g. 128"
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <SmallSelect label="Bit depth"
+                    value={customForm.audioBitDepth}
+                    onChange={v => updateForm('audioBitDepth', v)}
+                    options={[
+                      { label: 'Any',   value: ''   },
+                      { label: '16-bit', value: '16' },
+                      { label: '24-bit', value: '24' },
+                      { label: '32-bit', value: '32' },
+                    ]}
+                  />
+                  <SmallSelect label="Sample rate"
+                    value={customForm.audioSampleRate}
+                    onChange={v => updateForm('audioSampleRate', v)}
+                    options={[
+                      { label: 'Any',     value: ''      },
+                      { label: '44.1 kHz', value: '44100' },
+                      { label: '48 kHz',  value: '48000' },
+                      { label: '96 kHz',  value: '96000' },
+                    ]}
+                  />
+                  <SmallSelect label="Channels"
+                    value={customForm.audioChannels}
+                    onChange={v => updateForm('audioChannels', v)}
+                    options={[
+                      { label: 'Any',    value: '' },
+                      { label: 'Mono',   value: '1' },
+                      { label: 'Stereo', value: '2' },
+                      { label: '5.1',    value: '6' },
+                      { label: '7.1',    value: '8' },
+                    ]}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                  <ModalField label="Loudness target" hint="LUFS">
+                    <input className="input" type="number"
+                      value={customForm.loudnessTarget}
+                      onChange={e => updateForm('loudnessTarget', e.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <ModalField label="Tolerance" hint="±LUFS">
+                    <input className="input" type="number" step="0.5"
+                      value={customForm.loudnessTolerance}
+                      onChange={e => updateForm('loudnessTolerance', e.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                  <ModalField label="True peak max" hint="dBTP">
+                    <input className="input" type="number"
+                      value={customForm.truePeakMax}
+                      onChange={e => updateForm('truePeakMax', e.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </ModalField>
+                </div>
+              </ModalSection>
 
-              <ModalField label="Chroma subsampling">
-                <select
-                  className="select"
-                  value={customForm.chromaSubsampling}
-                  onChange={e => updateForm('chromaSubsampling', e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="4:2:0">4:2:0</option>
-                  <option value="4:2:2">4:2:2</option>
-                  <option value="4:4:4">4:4:4</option>
-                </select>
-              </ModalField>
-
-              <ModalField label="Frame rates" hint="comma-separated: 24, 25, 29.97, 30">
-                <input
-                  className="input"
-                  type="text"
-                  value={customForm.frameRates}
-                  onChange={e => updateForm('frameRates', e.target.value)}
-                  style={{ width: '100%' }}
-                />
-              </ModalField>
-
-              <div style={{ display: 'flex', gap: '20px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={customForm.requireProgressive}
-                    onChange={e => updateForm('requireProgressive', e.target.checked)}
-                  />
-                  Require progressive
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={customForm.requireFastStart}
-                    onChange={e => updateForm('requireFastStart', e.target.checked)}
-                  />
-                  Require fast start
-                </label>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <ModalField label="Loudness target" hint="LUFS">
-                  <input
-                    className="input"
-                    type="number"
-                    value={customForm.loudnessTarget}
-                    onChange={e => updateForm('loudnessTarget', e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </ModalField>
-                <ModalField label="Tolerance" hint="±LUFS">
-                  <input
-                    className="input"
-                    type="number"
-                    step="0.5"
-                    value={customForm.loudnessTolerance}
-                    onChange={e => updateForm('loudnessTolerance', e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </ModalField>
-                <ModalField label="True peak max" hint="dBTP">
-                  <input
-                    className="input"
-                    type="number"
-                    value={customForm.truePeakMax}
-                    onChange={e => updateForm('truePeakMax', e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </ModalField>
-              </div>
             </div>
 
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '24px' }}>
@@ -587,15 +755,191 @@ const App: React.FC = () => {
   );
 };
 
-// Small helper for modal form fields
+// Small helpers for modal form
 const ModalField: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
   <div>
-    <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '4px' }}>
+    <label style={{ display: 'block', fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px' }}>
       {label}
-      {hint && <span style={{ marginLeft: '6px', fontStyle: 'italic' }}>({hint})</span>}
+      {hint && <span style={{ marginLeft: '6px', fontStyle: 'italic', opacity: 0.55, fontSize: '0.7rem' }}>({hint})</span>}
     </label>
     {children}
   </div>
 );
+
+const ModalSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div>
+    <div style={{
+      fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+      color: '#ffffff', marginBottom: '10px', paddingBottom: '6px',
+      borderBottom: '1px solid var(--border-color)',
+    }}>
+      {title}
+    </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {children}
+    </div>
+  </div>
+);
+
+// Single-select custom dropdown — width stays within its grid column
+const SmallSelect: React.FC<{
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ label: string; value: string }>;
+}> = ({ label, value, onChange, options }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <label style={{ display: 'block', fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px' }}>
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', background: 'var(--color-bg-tertiary)',
+          border: '1px solid var(--border-color)', borderRadius: 4,
+          padding: '6px 8px', color: 'var(--color-text-primary)',
+          fontSize: '0.8125rem', cursor: 'pointer',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected?.label || 'Any'}
+        </span>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" style={{ flexShrink: 0 }}>
+          <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 2px)', left: 0,
+          background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
+          borderRadius: 6, zIndex: 500, boxShadow: '0 6px 16px rgba(0,0,0,0.5)',
+          minWidth: '100%', overflow: 'hidden',
+        }}>
+          {options.map(opt => (
+            <button key={opt.value} type="button"
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              style={{
+                display: 'block', width: '100%', padding: '6px 10px',
+                background: opt.value === value ? 'var(--color-accent)' : 'transparent',
+                color: opt.value === value ? '#fff' : 'var(--color-text-primary)',
+                fontSize: '0.8125rem', cursor: 'pointer', textAlign: 'left',
+                border: 'none', whiteSpace: 'nowrap',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Multi-select field: click the label to open chip picker; text input always editable
+interface MSOption { label: string; value: string }
+
+const MultiSelectInput: React.FC<{
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: MSOption[];
+}> = ({ label, hint, value, onChange, options }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const selected = value.split(',').map(s => s.trim()).filter(Boolean);
+
+  const toggle = (val: string) => {
+    const idx = selected.findIndex(s => s.toLowerCase() === val.toLowerCase());
+    const updated = idx >= 0 ? selected.filter((_, i) => i !== idx) : [...selected, val];
+    onChange(updated.join(', '));
+  };
+
+  const isSelected = (val: string) => selected.some(s => s.toLowerCase() === val.toLowerCase());
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <label style={{ display: 'block', fontSize: '0.75rem', color: '#ffffff', marginBottom: '4px' }}>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: '#ffffff', fontSize: '0.75rem', fontWeight: 600,
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3,
+          }}
+        >
+          {label}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+            <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+          </svg>
+        </button>
+        {hint && <span style={{ marginLeft: '6px', fontStyle: 'italic', opacity: 0.55, fontWeight: 400, fontSize: '0.7rem' }}>({hint})</span>}
+      </label>
+      <input
+        className="input"
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{ width: '100%' }}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 2px)', left: 0, right: 0,
+          background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
+          borderRadius: 8, padding: '10px 10px 8px',
+          zIndex: 400, boxShadow: '0 8px 20px rgba(0,0,0,0.6)',
+          display: 'flex', flexWrap: 'wrap', gap: 6,
+        }}>
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggle(opt.value)}
+              style={{
+                padding: '3px 10px', borderRadius: 14, fontSize: '0.75rem', cursor: 'pointer',
+                border: '1px solid',
+                background: isSelected(opt.value) ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+                borderColor: isSelected(opt.value) ? 'var(--color-accent)' : 'var(--border-color)',
+                color: isSelected(opt.value) ? '#fff' : 'var(--color-text-primary)',
+                fontWeight: isSelected(opt.value) ? 600 : 400,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default App;

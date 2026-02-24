@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Play,
   Pause,
@@ -10,26 +10,34 @@ import {
   Grid3X3,
   Maximize,
   Video,
+  Subtitles,
 } from 'lucide-react';
 import { overlayPresets } from '../../shared/presets';
+import type { TranscriptionSegment } from '../../shared/types';
 
 interface VideoPlayerProps {
   filePath: string;
   videoWidth: number;
   videoHeight: number;
   frameRate: number;
+  subtitles?: TranscriptionSegment[];
   onSnapshot?: (time: number) => void;
   onTimeUpdate?: (time: number) => void;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+export interface VideoPlayerHandle {
+  seekTo: (ms: number) => void;
+}
+
+export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   filePath,
   videoWidth,
   videoHeight,
   frameRate,
+  subtitles,
   onSnapshot,
   onTimeUpdate,
-}) => {
+}, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -39,8 +47,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [selectedOverlay, setSelectedOverlay] = useState<string>('');
   const [showSafeAreas, setShowSafeAreas] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
+  const [showSubtitles, setShowSubtitles] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [safezoneDir, setSafezoneDir] = useState<string>('');
+
+  useImperativeHandle(ref, () => ({
+    seekTo(ms: number) {
+      const video = videoRef.current;
+      if (!video) return;
+      video.currentTime = ms / 1000;
+      setCurrentTime(ms / 1000);
+    },
+  }));
 
   useEffect(() => {
     window.electronAPI.app.getSafezoneDir().then(setSafezoneDir);
@@ -259,6 +277,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`;
   };
 
+  // Find the subtitle segment that matches the current playback time
+  const currentTimeMs = currentTime * 1000;
+  const currentSubtitle = subtitles?.find(
+    seg => currentTimeMs >= seg.from && currentTimeMs <= seg.to
+  )?.text ?? null;
+
   const guidePresets = overlayPresets.filter(o => o.group === 'guides');
   const safezoneImagePresets = overlayPresets.filter(o => o.group === 'safezones');
   const selectedOverlayObj = overlayPresets.find(o => o.id === selectedOverlay);
@@ -301,6 +325,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             pointerEvents: 'none',
           }}
         />
+        {/* Subtitle overlay */}
+        {showSubtitles && currentSubtitle && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '8%',
+              left: 0,
+              right: 0,
+              display: 'flex',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              zIndex: 10,
+            }}
+          >
+            <span
+              style={{
+                background: 'rgba(0,0,0,0.78)',
+                color: '#fff',
+                padding: '4px 14px',
+                borderRadius: '4px',
+                fontSize: 'clamp(0.7rem, 1.8vw, 1rem)',
+                maxWidth: '82%',
+                textAlign: 'center',
+                lineHeight: 1.4,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {currentSubtitle}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Timeline scrubber */}
@@ -407,6 +462,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <span>Grid</span>
           </label>
 
+          {subtitles && subtitles.length > 0 && (
+            <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              <input
+                type="checkbox"
+                className="toggle-checkbox"
+                checked={showSubtitles}
+                onChange={e => setShowSubtitles(e.target.checked)}
+              />
+              <span className="toggle-slider"></span>
+              <Subtitles size={12} style={{ display: 'inline' }} />
+              <span>Subtitles</span>
+            </label>
+          )}
+
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem' }}>
             <Maximize size={12} />
             <span>Zoom:</span>
@@ -424,4 +493,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
     </div>
   );
-};
+});
+
+VideoPlayer.displayName = 'VideoPlayer';

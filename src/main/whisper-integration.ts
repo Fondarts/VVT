@@ -150,6 +150,29 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
   });
 }
 
+// ── SRT generation ──────────────────────────────────────────────
+
+function msToSRTTimestamp(ms: number): string {
+  const h    = Math.floor(ms / 3600000);
+  const m    = Math.floor((ms % 3600000) / 60000);
+  const s    = Math.floor((ms % 60000) / 1000);
+  const frac = ms % 1000;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(frac).padStart(3,'0')}`;
+}
+
+export function generateSRT(segments: { from: number; to: number; text: string }[]): string {
+  if (segments.length === 0) return '';
+  return segments
+    .map((seg, i) => `${i + 1}\n${msToSRTTimestamp(seg.from)} --> ${msToSRTTimestamp(seg.to)}\n${seg.text.trim()}`)
+    .join('\n\n') + '\n';
+}
+
+export function saveSRT(segments: { from: number; to: number; text: string }[], outputPath: string): string {
+  const srt = generateSRT(segments);
+  fs.writeFileSync(outputPath, srt, 'utf-8');
+  return outputPath;
+}
+
 // ── Public API ──────────────────────────────────────────────────
 
 export interface TranscriptionSegment {

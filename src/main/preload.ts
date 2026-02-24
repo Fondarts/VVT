@@ -48,6 +48,8 @@ const electronAPI = {
       ipcRenderer.invoke('whisper:setPath', binary, model),
     transcribe: (videoPath: string, workDir: string): Promise<TranscriptionResult> =>
       ipcRenderer.invoke('whisper:transcribe', videoPath, workDir),
+    saveSRT: (segments: TranscriptionResult['segments'], outputPath: string): Promise<string> =>
+      ipcRenderer.invoke('whisper:saveSRT', segments, outputPath),
   },
   
   shell: {

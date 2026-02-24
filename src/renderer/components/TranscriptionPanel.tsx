@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Loader2, Settings, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { Mic, Loader2, Settings, ChevronDown, ChevronUp, Copy, Check, FileDown } from 'lucide-react';
 import type { TranscriptionResult } from '../../shared/types';
 
 interface Props {
@@ -30,6 +30,7 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
   const [error, setError]             = useState<string | null>(null);
   const [collapsed, setCollapsed]     = useState(false);
   const [copied, setCopied]           = useState(false);
+  const [srtSaved, setSrtSaved]       = useState(false);
 
   // Load saved paths on mount
   useEffect(() => {
@@ -77,6 +78,15 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
     navigator.clipboard.writeText(result.fullText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleExportSRT = async () => {
+    if (!result || result.segments.length === 0) return;
+    const savePath = await window.electronAPI.dialog.saveFilePath('subtitles.srt');
+    if (!savePath) return;
+    await window.electronAPI.whisper.saveSRT(result.segments, savePath);
+    setSrtSaved(true);
+    setTimeout(() => setSrtSaved(false), 2000);
   };
 
   return (
@@ -173,6 +183,9 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
             <div style={{ display: 'flex', gap: '6px' }}>
               <button className="btn btn-icon btn-sm" onClick={handleCopy} title="Copy full text">
                 {copied ? <Check size={12} style={{ color: 'var(--color-success)' }} /> : <Copy size={12} />}
+              </button>
+              <button className="btn btn-icon btn-sm" onClick={handleExportSRT} title="Export SRT subtitles">
+                {srtSaved ? <Check size={12} style={{ color: 'var(--color-success)' }} /> : <FileDown size={12} />}
               </button>
               <button className="btn btn-secondary btn-sm" onClick={handleTranscribe}>
                 Re-run
