@@ -89,11 +89,15 @@ interface TranscriptionSegmentRaw { from: number; to: number; text: string }
 
 function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]> {
   return new Promise((resolve, reject) => {
+    // Use output dir same as audio file to avoid permission issues
+    const outDir  = path.dirname(audioPath);
+    const outFile = path.join(outDir, path.basename(audioPath, '.wav'));
+
     const args = [
       '-m', whisperModel,
       '-f', audioPath,
       '--output-json',
-      '-l', 'auto',
+      '--output-file', outFile,
     ];
 
     const child = spawn(whisperBinary, args, { windowsHide: true });
@@ -104,9 +108,9 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
 
     child.on('error', reject);
 
-    child.on('close', async code => {
-      // Try JSON output file first (written by --output-json flag)
-      const jsonPath = audioPath + '.json';
+    child.on('close', code => {
+      // Try JSON output file (whisper writes {outFile}.json)
+      const jsonPath = outFile + '.json';
       if (fs.existsSync(jsonPath)) {
         try {
           const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as {
@@ -124,19 +128,23 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
           try { fs.unlinkSync(jsonPath); } catch {}
           resolve(segs);
           return;
-        } catch {/* fall through to text parse */}
+        } catch {/* fall through */}
       }
 
-      // Fallback: parse stdout/stderr for timestamp lines
+      // Fallback: parse stdout/stderr for [HH:MM:SS.mmm --> ...] lines
       const combined = stdout + '\n' + stderr;
       const segs = parseWhisperStdout(combined);
       if (segs.length > 0) {
         resolve(segs);
-      } else if (code !== 0) {
-        reject(new Error(`Whisper exited with code ${code}. Check binary/model paths.\n${stderr.slice(-400)}`));
+        return;
+      }
+
+      if (code !== 0) {
+        // Surface the real whisper error output to the user
+        const detail = (stderr || stdout).slice(-600).trim() || '(no output)';
+        reject(new Error(`Whisper exited with code ${code}.\n\n${detail}`));
       } else {
-        // No segments found but exit 0 — probably silence or very short clip
-        resolve([]);
+        resolve([]); // exit 0 but no speech detected
       }
     });
   });
