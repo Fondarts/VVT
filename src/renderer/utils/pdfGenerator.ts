@@ -151,58 +151,72 @@ export const generatePDF = async (
   y += 7;
 
   // ═══════════════════════════════════════════════════════════
-  // THUMBNAILS
-  //   Frame 1 : left column, spans 2 rows tall
-  //   Frames 2-7 : right 3 columns × 2 rows
-  //   Frames 8+  : full-width 4-col rows below
+  // THUMBNAILS — Frame 1 (big, left) + 3×3 grid (right, same area)
   // ═══════════════════════════════════════════════════════════
   if (report.thumbnails.length > 0) {
     const thumbs = report.thumbnails.slice(0, 10);
     const vidAsp = report.detected.video.width / report.detected.video.height;
     const GAP    = 2;
+    const MAX_H  = 100; // max height for the thumbnail block
 
-    // Frame 1: 50% of content width. All remaining frames in 3-col grid on the right.
-    const MAX_BIG_H = 80;
-    let bigW = CW * 0.50;
+    // Big frame and right grid area each get half the content width
+    let bigW = (CW - GAP) / 2;
     let bigH = bigW / vidAsp;
-    if (bigH > MAX_BIG_H) { bigH = MAX_BIG_H; bigW = bigH * vidAsp; }
 
-    const rightW    = CW - bigW - GAP;
-    const smallCols = 3;
-    const smallW    = (rightW - (smallCols - 1) * GAP) / smallCols;
-    const smallH    = smallW / vidAsp;
-
-    const rightThumbs = thumbs.slice(1);   // ALL remaining frames
-    const smallRows   = Math.ceil(rightThumbs.length / smallCols);
-    const totalH      = Math.max(bigH, smallRows * smallH + Math.max(0, smallRows - 1) * GAP);
-
-    pb(totalH + 16);
-    sectionBar(`THUMBNAILS  (${thumbs.length} frames)`);
-
-    // ── Frame 1 (big, left side) ─────────────────────────────
-    const b64_0 = await loadImageAsBase64(thumbs[0]);
-    if (b64_0) { doc.addImage(b64_0, 'JPEG', M, y, bigW, bigH); }
-    else { doc.setFillColor(200, 210, 225); doc.rect(M, y, bigW, bigH, 'F'); }
-    doc.setFillColor(20, 20, 20);
-    doc.roundedRect(M + bigW - 8, y + bigH - 5, 7, 4, 1, 1, 'F');
-    txt('1', M + bigW - 7, y + bigH - 2, 5, 'bold', WHITE);
-
-    // ── Frames 2+ (right 3-col grid, all remaining) ──────────
-    const rxStart = M + bigW + GAP;
-    for (let i = 0; i < rightThumbs.length; i++) {
-      const col = i % smallCols;
-      const row = Math.floor(i / smallCols);
-      const tx  = rxStart + col * (smallW + GAP);
-      const ty  = y + row * (smallH + GAP);
-      const b64 = await loadImageAsBase64(rightThumbs[i]);
-      if (b64) { doc.addImage(b64, 'JPEG', tx, ty, smallW, smallH); }
-      else { doc.setFillColor(200, 210, 225); doc.rect(tx, ty, smallW, smallH, 'F'); }
-      doc.setFillColor(20, 20, 20);
-      doc.roundedRect(tx + smallW - 8, ty + smallH - 5, 7, 4, 1, 1, 'F');
-      txt(`${i + 2}`, tx + smallW - 7, ty + smallH - 2, 5, 'bold', WHITE);
+    // Scale down if too tall (portrait videos)
+    if (bigH > MAX_H) {
+      bigH = MAX_H;
+      bigW = bigH * vidAsp;
     }
 
-    y += totalH + 6;
+    // Right grid area: same dimensions as big frame
+    const rightAreaW = bigW;
+    const rightAreaH = bigH;
+
+    // Center the whole block horizontally
+    const totalBlockW = bigW + GAP + rightAreaW;
+    const blockX = M + (CW - totalBlockW) / 2;
+
+    // Small frame sizes within 3×3 grid (fills the right area)
+    const COLS = 3, ROWS = 3;
+    const smallW = (rightAreaW - (COLS - 1) * GAP) / COLS;
+    const smallH = (rightAreaH - (ROWS - 1) * GAP) / ROWS;
+
+    pb(bigH + 16);
+    sectionBar(`THUMBNAILS  (${thumbs.length} frames)`);
+
+    // ── Frame 1 (big, left) ──────────────────────────────────
+    const b64_0 = await loadImageAsBase64(thumbs[0]);
+    if (b64_0) { doc.addImage(b64_0, 'JPEG', blockX, y, bigW, bigH); }
+    else { doc.setFillColor(200, 210, 225); doc.rect(blockX, y, bigW, bigH, 'F'); }
+    doc.setFillColor(20, 20, 20);
+    doc.roundedRect(blockX + bigW - 8, y + bigH - 5, 7, 4, 1, 1, 'F');
+    txt('1', blockX + bigW - 7, y + bigH - 2, 5, 'bold', WHITE);
+
+    // ── Frames 2–10 (3×3 grid, right side, same height as big frame) ──
+    const rxStart = blockX + bigW + GAP;
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const idx = row * COLS + col;        // 0–8 → thumbs[1]–thumbs[9]
+        const tx  = rxStart + col * (smallW + GAP);
+        const ty  = y + row * (smallH + GAP);
+
+        if (idx + 1 < thumbs.length) {
+          const b64 = await loadImageAsBase64(thumbs[idx + 1]);
+          if (b64) { doc.addImage(b64, 'JPEG', tx, ty, smallW, smallH); }
+          else { doc.setFillColor(200, 210, 225); doc.rect(tx, ty, smallW, smallH, 'F'); }
+          doc.setFillColor(20, 20, 20);
+          doc.roundedRect(tx + smallW - 8, ty + smallH - 5, 7, 4, 1, 1, 'F');
+          txt(`${idx + 2}`, tx + smallW - 7, ty + smallH - 2, 5, 'bold', WHITE);
+        } else {
+          // Empty slot placeholder
+          doc.setFillColor(235, 237, 243);
+          doc.rect(tx, ty, smallW, smallH, 'F');
+        }
+      }
+    }
+
+    y += bigH + 6;
   }
 
   // ═══════════════════════════════════════════════════════════
