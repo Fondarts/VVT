@@ -101,54 +101,49 @@ export const generatePDF = async (
   };
 
   // ═══════════════════════════════════════════════════════════
-  // PAGE HEADER  (compact)
+  // PAGE HEADER
   // ═══════════════════════════════════════════════════════════
   doc.setFillColor(...NAVY);
   doc.rect(0, 0, PW, 16, 'F');
-
   txt('KISSD VIDEO VALIDATION TOOL', M, 10, 9, 'bold', WHITE);
-
-  const hDate = new Date(report.timestamp).toLocaleDateString();
-  doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(...([160, 180, 220] as [number,number,number]));
-  doc.text(hDate, PW - M - doc.getTextWidth(hDate), 10);
-
   y = 22;
 
   // ═══════════════════════════════════════════════════════════
-  // FILE INFORMATION — 2-column
+  // COMPACT FILE SUMMARY — name + result + key metadata
   // ═══════════════════════════════════════════════════════════
-  sectionBar('FILE INFORMATION');
+  const failCount = report.checks.filter(c => c.status === 'fail').length;
+  const warnCount = report.checks.filter(c => c.status === 'warn').length;
+  const resultText = failCount > 0
+    ? `${failCount} TEST${failCount !== 1 ? 'S' : ''} FAILED`
+    : warnCount > 0
+      ? `${warnCount} WARNING${warnCount !== 1 ? 'S' : ''}`
+      : 'ALL CHECKS PASSED';
+  const resultColor: [number, number, number] = failCount > 0 ? [210, 35, 35]
+    : warnCount > 0 ? [202, 100, 10]
+    : [22, 163, 74];
 
-  const colW  = (CW - 2) / 2;
-  const leftX = M;
-  const rightX = M + colW + 2;
+  doc.setFillColor(...LIGHT_BG);
+  doc.rect(M, y, CW, 16, 'F');
 
-  type InfoPair = [string, string];
-  const leftCol: InfoPair[] = [
-    ['Name',       report.file.name.length > 32 ? report.file.name.substring(0, 30) + '…' : report.file.name],
-    ['Duration',   report.file.durationFormatted],
-    ['File Size',  report.file.sizeFormatted],
-    ['Container',  report.file.container.toUpperCase()],
-    ['Fast Start', report.detected.fastStart.enabled ? 'Yes (moov at beginning)' : 'No'],
-  ];
-  const rightCol: InfoPair[] = [
-    ['Dimensions',  `${report.detected.video.width} × ${report.detected.video.height}`],
-    ['Aspect Ratio', aspectRatioStr(report.detected.video.width, report.detected.video.height)],
-    ['Frame Rate',  `${report.detected.video.frameRateFormatted} fps`],
-    ['Video Codec', report.detected.video.codec.toUpperCase()],
-    ...(report.detected.audio ? [['Audio Codec', report.detected.audio.codec.toUpperCase()] as InfoPair] : []),
-  ];
+  const fileName = report.file.name.length > 50
+    ? report.file.name.substring(0, 48) + '…'
+    : report.file.name;
+  txt(fileName, M + 4, y + 6, 8.5, 'bold', DARK);
 
-  const maxR = Math.max(leftCol.length, rightCol.length);
-  for (let i = 0; i < maxR; i++) {
-    pb(8);
-    if (i % 2 === 0) { doc.setFillColor(...LIGHT_BG); doc.rect(M, y - 2, CW, 7.5, 'F'); }
-    const ry = y + 3.5;
-    if (leftCol[i])  { txt(leftCol[i][0],  leftX  + 2, ry, 8, 'normal', MUTED); txt(leftCol[i][1],  leftX  + 32, ry, 8, 'bold', DARK); }
-    if (rightCol[i]) { txt(rightCol[i][0], rightX + 2, ry, 8, 'normal', MUTED); txt(rightCol[i][1], rightX + 32, ry, 8, 'bold', DARK); }
-    y += 7.5;
-  }
-  y += 7;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...resultColor);
+  doc.text(resultText, PW - M - doc.getTextWidth(resultText) - 4, y + 6);
+
+  const meta = [
+    report.file.sizeFormatted,
+    report.file.durationFormatted,
+    `${report.detected.video.width}×${report.detected.video.height}`,
+    new Date(report.timestamp).toLocaleDateString(),
+  ].join('  ·  ');
+  txt(meta, M + 4, y + 12, 6.5, 'normal', MUTED);
+
+  y += 20;
 
   // ═══════════════════════════════════════════════════════════
   // THUMBNAILS — Frame 1 (big, left) + 3×3 grid (right, same area)
@@ -157,7 +152,7 @@ export const generatePDF = async (
     const thumbs = report.thumbnails.slice(0, 10);
     const vidAsp = report.detected.video.width / report.detected.video.height;
     const GAP    = 2;
-    const MAX_H  = 100; // max height for the thumbnail block
+    const MAX_H  = 100;
 
     // Big frame and right grid area each get half the content width
     let bigW = (CW - GAP) / 2;
@@ -209,7 +204,6 @@ export const generatePDF = async (
           doc.roundedRect(tx + smallW - 8, ty + smallH - 5, 7, 4, 1, 1, 'F');
           txt(`${idx + 2}`, tx + smallW - 7, ty + smallH - 2, 5, 'bold', WHITE);
         } else {
-          // Empty slot placeholder
           doc.setFillColor(235, 237, 243);
           doc.rect(tx, ty, smallW, smallH, 'F');
         }
@@ -220,7 +214,96 @@ export const generatePDF = async (
   }
 
   // ═══════════════════════════════════════════════════════════
-  // VALIDATION CHECKS — immediately after thumbnails
+  // FILE PROPERTIES — comprehensive single table, no duplicates
+  // ═══════════════════════════════════════════════════════════
+  pb(40);
+  sectionBar('FILE PROPERTIES');
+
+  type PropStatus = 'info' | 'pass' | 'warn' | 'fail';
+  interface PropRow { name: string; value: string; status: PropStatus }
+
+  const checkMap = new Map(report.checks.map(c => [c.id, c]));
+  const cs = (id: string): PropStatus => (checkMap.get(id)?.status as PropStatus) ?? 'info';
+
+  const propRows: PropRow[] = [
+    { name: 'File Name',          value: report.file.name,                                                        status: 'info' },
+    { name: 'File Format',        value: report.file.container.toUpperCase(),                                      status: cs('container-format') },
+    { name: 'File Extension',     value: report.file.extension,                                                    status: 'info' },
+    { name: 'File Size',          value: report.file.sizeFormatted,                                                status: 'info' },
+    { name: 'Duration',           value: report.file.durationFormatted,                                            status: 'info' },
+    { name: 'MOOV Atom',          value: report.detected.fastStart.enabled ? 'Beginning' : 'End',                  status: cs('fast-start') },
+    { name: 'Video Codec',        value: report.detected.video.codec.toUpperCase(),                                status: cs('video-codec') },
+    { name: 'Video Profile',      value: report.detected.video.profile || 'N/A',                                  status: 'info' },
+    { name: 'Video Dimensions',   value: `${report.detected.video.width} × ${report.detected.video.height}`,      status: cs('resolution') },
+    { name: 'Video Aspect Ratio', value: aspectRatioStr(report.detected.video.width, report.detected.video.height), status: 'info' },
+    { name: 'Video Frame Rate',   value: `${report.detected.video.frameRateFormatted} fps`,                        status: cs('frame-rate') },
+    { name: 'Video Bit Rate',     value: report.detected.video.bitRateFormatted,                                   status: 'info' },
+    { name: 'Video Scan Type',    value: report.detected.video.scanType,                                           status: cs('scan-type') },
+    { name: 'Video Chroma',       value: report.detected.video.chromaSubsampling,                                  status: cs('chroma-subsampling') },
+    { name: 'Video Bit Depth',    value: report.detected.video.bitDepth ? `${report.detected.video.bitDepth}-bit` : 'N/A', status: 'info' },
+    { name: 'Video Color Space',  value: report.detected.video.colorSpace || 'N/A',                               status: 'info' },
+    { name: 'Video Color Range',  value: report.detected.video.colorRange || 'N/A',                               status: 'info' },
+  ];
+
+  if (report.detected.audio) {
+    propRows.push(
+      { name: 'Audio Codec',       value: report.detected.audio.codec.toUpperCase(),                                         status: cs('audio-codec') },
+      { name: 'Audio Sample Rate', value: `${report.detected.audio.sampleRate} Hz`,                                          status: 'info' },
+      { name: 'Audio Channels',    value: `${report.detected.audio.channels} (${report.detected.audio.channelLayout})`,      status: 'info' },
+      { name: 'Audio Bit Depth',   value: report.detected.audio.bitDepth ? `${report.detected.audio.bitDepth}-bit` : 'N/A', status: 'info' },
+      { name: 'Audio Loudness',    value: `${report.detected.audio.lufs} LUFS`,                                              status: cs('audio-lufs') },
+      { name: 'Audio True Peak',   value: `${report.detected.audio.truePeak} dBTP`,                                          status: cs('audio-truepeak') },
+    );
+  }
+
+  const pcolW = (CW - 2) / 2;
+  const prowH = 7.5;
+
+  for (let ri = 0; ri < Math.ceil(propRows.length / 2); ri++) {
+    pb(prowH + 2);
+    if (ri % 2 === 0) { doc.setFillColor(...LIGHT_BG); doc.rect(M, y - 1.5, CW, prowH, 'F'); }
+
+    for (let ci = 0; ci < 2; ci++) {
+      const idx = ri * 2 + ci;
+      if (idx >= propRows.length) continue;
+
+      const { name, value, status } = propRows[idx];
+      const px   = M + ci * (pcolW + 2);
+      const rowY = y + prowH / 2 + 0.5;
+
+      const dotColor = STATUS_COLORS[status];
+      if (status === 'info') {
+        doc.setDrawColor(...dotColor);
+        doc.setLineWidth(0.4);
+        doc.circle(px + 2.5, rowY - 1, 1.5, 'S');
+      } else {
+        doc.setFillColor(...dotColor);
+        doc.circle(px + 2.5, rowY - 1, 1.5, 'F');
+      }
+
+      txt(name, px + 7, rowY + 0.5, 7.5, 'normal', MUTED);
+
+      const valColor: [number, number, number] = status === 'warn' ? [180, 80, 10]
+        : status === 'fail' ? [200, 30, 30]
+        : DARK;
+
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...valColor);
+      let displayVal = value;
+      while (doc.getTextWidth(displayVal) > pcolW - 62 && displayVal.length > 4) {
+        displayVal = displayVal.slice(0, -4) + '…';
+      }
+      doc.text(displayVal, px + pcolW - doc.getTextWidth(displayVal) - 1, rowY + 0.5);
+    }
+
+    y += prowH;
+  }
+
+  y += 8;
+
+  // ═══════════════════════════════════════════════════════════
+  // VALIDATION CHECKS
   // ═══════════════════════════════════════════════════════════
   if (report.checks.length > 0) {
     pb(40);
@@ -302,95 +385,6 @@ export const generatePDF = async (
 
     y += wH + 10;
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // ALL FILE PROPERTIES — 2-column table
-  // ═══════════════════════════════════════════════════════════
-  pb(40);
-  sectionBar('FILE PROPERTIES');
-
-  type PropStatus = 'info' | 'pass' | 'warn' | 'fail';
-  interface PropRow { name: string; value: string; status: PropStatus }
-
-  const checkMap = new Map(report.checks.map(c => [c.id, c]));
-  const cs = (id: string): PropStatus => (checkMap.get(id)?.status as PropStatus) ?? 'info';
-
-  const propRows: PropRow[] = [
-    { name: 'File Name',          value: report.file.name,                                                     status: 'info' },
-    { name: 'File Format',        value: report.file.container.toUpperCase(),                                   status: cs('container-format') },
-    { name: 'File Extension',     value: report.file.extension,                                                 status: 'info' },
-    { name: 'File Size',          value: report.file.sizeFormatted,                                             status: 'info' },
-    { name: 'Duration',           value: report.file.durationFormatted,                                         status: 'info' },
-    { name: 'MOOV Atom',          value: report.detected.fastStart.enabled ? 'Beginning' : 'End',               status: cs('fast-start') },
-    { name: 'Video Codec',        value: report.detected.video.codec.toUpperCase(),                             status: cs('video-codec') },
-    { name: 'Video Profile',      value: report.detected.video.profile || 'N/A',                               status: 'info' },
-    { name: 'Video Dimensions',   value: `${report.detected.video.width} × ${report.detected.video.height}`,   status: cs('resolution') },
-    { name: 'Video Aspect Ratio', value: aspectRatioStr(report.detected.video.width, report.detected.video.height), status: 'info' },
-    { name: 'Video Frame Rate',   value: `${report.detected.video.frameRateFormatted} fps`,                     status: cs('frame-rate') },
-    { name: 'Video Bit Rate',     value: report.detected.video.bitRateFormatted,                               status: 'info' },
-    { name: 'Video Scan Type',    value: report.detected.video.scanType,                                       status: cs('scan-type') },
-    { name: 'Video Chroma',       value: report.detected.video.chromaSubsampling,                               status: cs('chroma-subsampling') },
-    { name: 'Video Bit Depth',    value: report.detected.video.bitDepth ? `${report.detected.video.bitDepth}-bit` : 'N/A', status: 'info' },
-    { name: 'Video Color Space',  value: report.detected.video.colorSpace || 'N/A',                            status: 'info' },
-    { name: 'Video Color Range',  value: report.detected.video.colorRange || 'N/A',                            status: 'info' },
-  ];
-
-  if (report.detected.audio) {
-    propRows.push(
-      { name: 'Audio Codec',       value: report.detected.audio.codec.toUpperCase(),                             status: cs('audio-codec') },
-      { name: 'Audio Sample Rate', value: `${report.detected.audio.sampleRate} Hz`,                             status: 'info' },
-      { name: 'Audio Channels',    value: `${report.detected.audio.channels} (${report.detected.audio.channelLayout})`, status: 'info' },
-      { name: 'Audio Bit Depth',   value: report.detected.audio.bitDepth ? `${report.detected.audio.bitDepth}-bit` : 'N/A', status: 'info' },
-      { name: 'Audio Loudness',    value: `${report.detected.audio.lufs} LUFS`,                                 status: cs('audio-lufs') },
-      { name: 'Audio True Peak',   value: `${report.detected.audio.truePeak} dBTP`,                             status: cs('audio-truepeak') },
-    );
-  }
-
-  const pcolW  = (CW - 2) / 2;
-  const prowH  = 7.5;
-
-  for (let ri = 0; ri < Math.ceil(propRows.length / 2); ri++) {
-    pb(prowH + 2);
-    if (ri % 2 === 0) { doc.setFillColor(...LIGHT_BG); doc.rect(M, y - 1.5, CW, prowH, 'F'); }
-
-    for (let ci = 0; ci < 2; ci++) {
-      const idx = ri * 2 + ci;
-      if (idx >= propRows.length) continue;
-
-      const { name, value, status } = propRows[idx];
-      const px   = M + ci * (pcolW + 2);
-      const rowY = y + prowH / 2 + 0.5;
-
-      const dotColor = STATUS_COLORS[status];
-      if (status === 'info') {
-        doc.setDrawColor(...dotColor);
-        doc.setLineWidth(0.4);
-        doc.circle(px + 2.5, rowY - 1, 1.5, 'S');
-      } else {
-        doc.setFillColor(...dotColor);
-        doc.circle(px + 2.5, rowY - 1, 1.5, 'F');
-      }
-
-      txt(name, px + 7, rowY + 0.5, 7.5, 'normal', MUTED);
-
-      const valColor: [number, number, number] = status === 'warn' ? [180, 80, 10]
-        : status === 'fail' ? [200, 30, 30]
-        : DARK;
-
-      doc.setFontSize(7.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...valColor);
-      let displayVal = value;
-      while (doc.getTextWidth(displayVal) > pcolW - 62 && displayVal.length > 4) {
-        displayVal = displayVal.slice(0, -4) + '…';
-      }
-      doc.text(displayVal, px + pcolW - doc.getTextWidth(displayVal) - 1, rowY + 0.5);
-    }
-
-    y += prowH;
-  }
-
-  y += 8;
 
   // ═══════════════════════════════════════════════════════════
   // FOOTER on every page

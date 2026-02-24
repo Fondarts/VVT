@@ -219,14 +219,21 @@ ipcMain.handle('video:generateThumbnails', async (_, filePath: string, outputDir
   const ffprobeData = await runFFprobe(filePath);
   const duration = parseFloat(ffprobeData.format.duration || '0');
   
-  // Generate 8 thumbnails evenly spaced
-  const numThumbs = 8;
+  // Generate 10 thumbnails: first frame, 8 evenly spaced, last frame
+  const numThumbs = 10;
   const thumbnails: string[] = [];
-  
+
   await fs.promises.mkdir(outputDir, { recursive: true });
-  
+
   for (let i = 0; i < numThumbs; i++) {
-    const time = (duration / (numThumbs + 1)) * (i + 1);
+    let time: number;
+    if (i === 0) {
+      time = 0;                               // first frame
+    } else if (i === numThumbs - 1) {
+      time = Math.max(0, duration - 0.1);     // last frame
+    } else {
+      time = (duration / (numThumbs - 1)) * i; // evenly spaced in between
+    }
     const outputPath = path.join(outputDir, `thumb_${i + 1}.jpg`);
     await extractThumbnail(filePath, time, outputPath);
     thumbnails.push(outputPath);
