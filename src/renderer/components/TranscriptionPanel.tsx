@@ -103,10 +103,13 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
       setWxModel(cfg.model);
       setWxDevice(cfg.device);
       setWxCompute(cfg.computeType);
+      // Restore last used engine choice
+      if ((cfg as any).preferredEngine === 'whisperCpp') setEngine('whisperCpp');
     });
+    // Check uses pip show — fast, no full import needed.
+    // Never auto-switch engine: the user's saved choice is always respected.
     window.electronAPI.whisperx.check().then(({ available }) => {
       setWxAvail(available ? 'available' : 'unavailable');
-      if (!available) setEngine('whisperCpp'); // fallback
     });
   }, []);
 
@@ -235,8 +238,14 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
   };
 
   const handleSaveWXConfig = async () => {
-    await window.electronAPI.whisperx.setConfig({ model: wxModel, device: wxDevice, computeType: wxCompute });
+    await window.electronAPI.whisperx.setConfig({ model: wxModel, device: wxDevice, computeType: wxCompute, preferredEngine: engine } as any);
     setShowSetup(false);
+  };
+
+  // Persist engine choice whenever it changes
+  const handleSetEngine = (e: Engine) => {
+    setEngine(e);
+    window.electronAPI.whisperx.setConfig({ preferredEngine: e } as any);
   };
 
   // ── Transcription ──────────────────────────────────────────────
@@ -395,7 +404,7 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
             {(['whisperX', 'whisperCpp'] as Engine[]).map(e => (
               <button
                 key={e}
-                onClick={() => setEngine(e)}
+                onClick={() => handleSetEngine(e)}
                 style={{
                   flex: 1, padding: '6px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: 'none',
                   background: engine === e ? 'var(--color-accent)' : 'var(--color-bg-secondary)',
@@ -655,12 +664,14 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>No speech detected.</p>
           ) : (
             <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-              {editedSegments.map((seg, i) => (
+              {editedSegments.map((seg, i) => {
+                const rowBg = i % 2 !== 0 ? 'rgba(255,255,255,0.04)' : 'transparent';
+                return (
                 <div
                   key={i}
-                  style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px', padding: '3px 4px', borderRadius: '4px', fontSize: '0.78rem', alignItems: 'start' }}
+                  style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px', padding: '4px 6px', borderRadius: '4px', fontSize: '0.78rem', alignItems: 'start', background: rowBg }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-bg-tertiary)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = ''; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = rowBg; }}
                 >
                   {/* Timecodes */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', paddingTop: '2px' }}>
@@ -691,7 +702,8 @@ export const TranscriptionPanel: React.FC<Props> = ({ filePath, outputFolder, on
                     </span>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', marginTop: '6px' }}>

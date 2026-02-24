@@ -55,15 +55,17 @@ function loadSavedConfig() {
       wxModel?: string;
       wxComputeType?: string;
       wxDevice?: string;
+      wxPreferredEngine?: string;
     };
     if (cfg.whisperBinary || cfg.whisperModel) {
       setWhisperPaths(cfg.whisperBinary ?? '', cfg.whisperModel ?? '');
     }
-    if (cfg.wxModel || cfg.wxComputeType || cfg.wxDevice) {
+    if (cfg.wxModel || cfg.wxComputeType || cfg.wxDevice || cfg.wxPreferredEngine) {
       setWhisperXConfig({
-        model:       cfg.wxModel       ?? 'base',
-        computeType: cfg.wxComputeType ?? 'int8',
-        device:      cfg.wxDevice      ?? 'cpu',
+        model:           cfg.wxModel           ?? 'base',
+        computeType:     cfg.wxComputeType     ?? 'int8',
+        device:          cfg.wxDevice          ?? 'cpu',
+        preferredEngine: cfg.wxPreferredEngine ?? 'whisperX',
       });
     }
   } catch { /* file doesn't exist yet */ }
@@ -74,11 +76,12 @@ function persistConfig() {
     const { binary, model } = getWhisperPaths();
     const wx = getWhisperXConfig();
     fs.writeFileSync(configPath(), JSON.stringify({
-      whisperBinary: binary,
-      whisperModel:  model,
-      wxModel:       wx.model,
-      wxComputeType: wx.computeType,
-      wxDevice:      wx.device,
+      whisperBinary:     binary,
+      whisperModel:      model,
+      wxModel:           wx.model,
+      wxComputeType:     wx.computeType,
+      wxDevice:          wx.device,
+      wxPreferredEngine: wx.preferredEngine,
     }), 'utf-8');
   } catch { /* non-fatal */ }
 }

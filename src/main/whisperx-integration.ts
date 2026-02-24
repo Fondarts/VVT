@@ -18,12 +18,14 @@ export interface WhisperXConfig {
   model: string;
   computeType: string;
   device: string;
+  preferredEngine: string; // 'whisperX' | 'whisperCpp'
 }
 
 let wxConfig: WhisperXConfig = {
   model: 'base',
   computeType: 'int8',
   device: 'cpu',
+  preferredEngine: 'whisperX',
 };
 
 export function setWhisperXConfig(cfg: Partial<WhisperXConfig>) {
@@ -36,16 +38,16 @@ export function getWhisperXConfig(): WhisperXConfig {
 
 // ── Check / Install ──────────────────────────────────────────────
 
-// Check via Python import (most reliable on Windows)
+// Check via pip show — fast and reliable, no torch/torchvision import needed
 export function checkWhisperX(): Promise<{ available: boolean }> {
   return new Promise(resolve => {
-    const child = spawn('python', ['-c', 'import whisperx; print("ok")'], {
+    const child = spawn('python', ['-m', 'pip', 'show', 'whisperx'], {
       windowsHide: true,
       shell: true,
     });
     let out = '';
     child.stdout.on('data', d => { out += d.toString(); });
-    child.on('close', code => resolve({ available: code === 0 && out.includes('ok') }));
+    child.on('close', code => resolve({ available: code === 0 && out.includes('Name: whisperx') }));
     child.on('error', () => resolve({ available: false }));
   });
 }
@@ -143,7 +145,17 @@ function groupWordsIntoSubtitles(words: WxWord[]): TranscriptionSegmentRaw[] {
   for (const w of valid) {
     const projected = groupText ? groupText + ' ' + w.word : w.word;
 
-    // Break BEFORE this word if adding it would exceed limit
+    // Break BEFORE this word if there is a significant audio pause (>= 0.5s).
+    // This prevents merging two sentences that are separated by silence —
+    // the second subtitle must start at the actual word timestamp, not earlier.
+    if (groupWords.length > 0) {
+      const lastWord = groupWords[groupWords.length - 1];
+      if (w.start - lastWord.end >= 0.5) {
+        flush();
+      }
+    }
+
+    // Break BEFORE this word if adding it would exceed the character limit
     if (projected.length > MAX_CHARS && groupText.length > 0) {
       flush();
     }
@@ -151,17 +163,81 @@ function groupWordsIntoSubtitles(words: WxWord[]): TranscriptionSegmentRaw[] {
     groupWords.push(w);
     groupText = groupText ? groupText + ' ' + w.word : w.word;
 
-    // Break AFTER strong punctuation (. ! ?)
-    if (/[.!?]$/.test(w.word) && groupText.length >= 10) {
+    // Break AFTER sentence-ending punctuation (. ! ?) — no minimum length,
+    // a new sentence always starts a new subtitle line.
+    if (/[.!?]$/.test(w.word)) {
       flush();
     } else if (/,$/.test(w.word) && groupText.length >= 20) {
-      // Break after comma only if the line is long enough
+      // Break after comma only when the line is already long enough
       flush();
     }
   }
 
   flush();
+
+  // Post-process 1: merge short orphaned words back into the previous subtitle
+  // when they complete an unfinished sentence (prev doesn't end with .!?).
+  // Handles dramatic pauses like "Passion into positive [2s pause] energy."
+  // and "there's no telling how far you can [pause] go."
+  const MAX_ORPHAN_CHARS = 30;
+  const MAX_GAP_MS       = 4000;
+  for (let i = segs.length - 1; i >= 1; i--) {
+    const cur  = segs[i];
+    const prev = segs[i - 1];
+    if (
+      cur.text.length <= MAX_ORPHAN_CHARS &&
+      !/[.!?]$/.test(prev.text.trim()) &&
+      cur.from - prev.to <= MAX_GAP_MS
+    ) {
+      segs[i - 1] = { ...prev, to: cur.to, text: prev.text.trim() + ' ' + cur.text.trim() };
+      segs.splice(i, 1);
+    }
+  }
+
+  // Post-process 2: extend any remaining subtitle too short to read.
+  // Minimum 1.2 s on screen, capped just before the next subtitle starts.
+  const MIN_MS = 1200;
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i].to - segs[i].from < MIN_MS) {
+      const cap = i < segs.length - 1 ? segs[i + 1].from - 80 : segs[i].from + MIN_MS;
+      segs[i] = { ...segs[i], to: Math.min(segs[i].from + MIN_MS, Math.max(segs[i].to, cap)) };
+    }
+  }
+
   return segs;
+}
+
+// ── Punctuation-based segment splitting (fallback path) ──────────
+// Splits long segments at sentence/clause boundaries, interpolating timestamps
+
+function splitAtPunctuation(segs: TranscriptionSegmentRaw[]): TranscriptionSegmentRaw[] {
+  const result: TranscriptionSegmentRaw[] = [];
+  for (const seg of segs) {
+    // Split at strong endings (. ! ?) then at commas for long clauses
+    const parts = seg.text
+      .split(/(?<=[.!?])\s+/)
+      .flatMap(p => {
+        const commaParts = p.split(/(?<=,)\s+/);
+        return commaParts.length > 1 && commaParts[0].length >= 15 ? commaParts : [p];
+      })
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    if (parts.length <= 1) { result.push(seg); continue; }
+
+    const totalChars = parts.join(' ').length;
+    const totalMs    = seg.to - seg.from;
+    let charPos = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const from = seg.from + Math.round((charPos / totalChars) * totalMs);
+      charPos += parts[i].length + (i < parts.length - 1 ? 1 : 0);
+      const to = i === parts.length - 1
+        ? seg.to
+        : seg.from + Math.round((charPos / totalChars) * totalMs);
+      result.push({ from, to, text: parts[i] });
+    }
+  }
+  return result;
 }
 
 // ── WhisperX JSON parser ─────────────────────────────────────────
@@ -197,11 +273,12 @@ function parseWhisperXJson(jsonPath: string): TranscriptionSegmentRaw[] {
   }
 
   // Fallback: segment-level (no word timestamps available)
-  return segments.map(s => ({
+  const segLevel = segments.map(s => ({
     from: Math.round(s.start * 1000),
     to:   Math.round(s.end   * 1000),
     text: s.text.trim(),
   })).filter(s => s.text.length > 0);
+  return splitAtPunctuation(segLevel);
 }
 
 // ── Main transcription function ──────────────────────────────────
