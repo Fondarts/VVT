@@ -9,6 +9,8 @@ import {
   Download,
   Plus,
   X,
+  Pencil,
+  RotateCcw,
 } from 'lucide-react';
 import type {
   ScanResult,
@@ -97,8 +99,14 @@ const App: React.FC = () => {
   });
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customForm, setCustomForm] = useState<CustomPresetForm>(defaultForm);
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
 
-  const allPresets = [...validationPresets, ...customPresets];
+  // Custom presets can override built-ins by sharing the same ID
+  const overriddenIds = new Set(customPresets.map(p => p.id));
+  const allPresets = [
+    ...validationPresets.filter(p => !overriddenIds.has(p.id)),
+    ...customPresets,
+  ];
 
   const [selectedPreset, setSelectedPreset] = useState<string>('');
   const [scanning, setScanning] = useState(false);
@@ -140,7 +148,7 @@ const App: React.FC = () => {
       return;
     }
 
-    const preset = [...validationPresets, ...customPresets].find(p => p.id === selectedPreset);
+    const preset = allPresets.find(p => p.id === selectedPreset);
     if (!preset) return;
 
     window.electronAPI.validation.run(scanResult, preset).then(validationChecks => {
@@ -238,23 +246,21 @@ const App: React.FC = () => {
   const handlePresetChange = (value: string) => {
     if (value === '__add_custom__') {
       setCustomForm(defaultForm);
+      setEditingPresetId(null);
       setShowCustomModal(true);
     } else {
       setSelectedPreset(value);
     }
   };
 
-  const saveCustomPreset = () => {
-    if (!customForm.name.trim()) return;
-
-    // Parse resolutions like "1920x1080, 1280x720"
+  const buildPresetFromForm = (id: string): ValidationPreset => {
     const parsedResolutions = customForm.resolutions
       .split(',').map(s => s.trim()).filter(Boolean)
       .map(s => { const [w, h] = s.split('x').map(Number); return w && h ? { width: w, height: h, label: `${w}x${h}` } : null; })
       .filter(Boolean) as { width: number; height: number; label: string }[];
 
-    const newPreset: ValidationPreset = {
-      id: `custom-${Date.now()}`,
+    return {
+      id,
       name: customForm.name.trim(),
       description: 'Custom preset',
       containerFormats: customForm.containerFormats.split(',').map(s => s.trim()).filter(Boolean),
@@ -279,11 +285,27 @@ const App: React.FC = () => {
       loudnessTolerance: parseFloat(customForm.loudnessTolerance) || 1,
       truePeakMax: parseFloat(customForm.truePeakMax) || -1,
     };
+  };
 
-    const updated = [...customPresets, newPreset];
+  const saveCustomPreset = () => {
+    if (!customForm.name.trim()) return;
+
+    const presetId = editingPresetId ?? `custom-${Date.now()}`;
+    const savedPreset = buildPresetFromForm(presetId);
+
+    let updated: ValidationPreset[];
+    if (editingPresetId && customPresets.some(p => p.id === editingPresetId)) {
+      // Update existing custom preset in place
+      updated = customPresets.map(p => p.id === editingPresetId ? savedPreset : p);
+    } else {
+      // Add new (also handles built-in overrides — same ID replaces the built-in in allPresets)
+      updated = [...customPresets, savedPreset];
+    }
+
     setCustomPresets(updated);
     localStorage.setItem('customPresets', JSON.stringify(updated));
-    setSelectedPreset(newPreset.id);
+    setSelectedPreset(presetId);
+    setEditingPresetId(null);
     setShowCustomModal(false);
   };
 
@@ -291,7 +313,40 @@ const App: React.FC = () => {
     const updated = customPresets.filter(p => p.id !== id);
     setCustomPresets(updated);
     localStorage.setItem('customPresets', JSON.stringify(updated));
-    if (selectedPreset === id) setSelectedPreset('social-media-standard');
+    // If we deleted an override of a built-in, the built-in is now visible again — keep it selected
+    if (selectedPreset === id) {
+      setSelectedPreset(validationPresets.some(p => p.id === id) ? id : 'social-media-standard');
+    }
+  };
+
+  const openEditPreset = (presetId: string) => {
+    const preset = allPresets.find(p => p.id === presetId);
+    if (!preset) return;
+    setCustomForm({
+      name: preset.name,
+      containerFormats: preset.containerFormats?.join(', ') ?? '',
+      requireFastStart: preset.requireFastStart ?? false,
+      maxFileSizeMb: preset.maxFileSizeMb?.toString() ?? '',
+      videoCodecs: (preset.allowedVideoCodecs ?? preset.videoCodecs ?? []).join(', '),
+      resolutions: preset.resolutions?.map(r => `${r.width}x${r.height}`).join(', ') ?? '',
+      aspectRatios: preset.aspectRatios?.join(', ') ?? '',
+      frameRates: preset.frameRates?.join(', ') ?? '',
+      chromaSubsampling: preset.chromaSubsampling ?? '4:2:0',
+      requireProgressive: preset.requireProgressive ?? false,
+      maxBitrateMbps: preset.maxBitrateMbps?.toString() ?? (preset.maxBitrate ? (preset.maxBitrate / 1_000_000).toFixed(1) : ''),
+      minBitrateMbps: preset.minBitrateMbps?.toString() ?? (preset.minBitrate ? (preset.minBitrate / 1_000_000).toFixed(1) : ''),
+      bitrateMode: preset.bitrateMode ?? 'any',
+      audioCodecs: (preset.allowedAudioCodecs ?? (preset.audioCodec ? [preset.audioCodec] : [])).join(', '),
+      minAudioKbps: preset.minAudioKbps?.toString() ?? '',
+      audioBitDepth: preset.audioBitDepth?.toString() ?? '',
+      audioSampleRate: preset.audioSampleRate?.toString() ?? '',
+      audioChannels: preset.audioChannels?.toString() ?? '',
+      loudnessTarget: preset.loudnessTarget?.toString() ?? '-14',
+      loudnessTolerance: preset.loudnessTolerance?.toString() ?? '1',
+      truePeakMax: preset.truePeakMax?.toString() ?? '-1',
+    });
+    setEditingPresetId(presetId);
+    setShowCustomModal(true);
   };
 
   const updateForm = (field: keyof CustomPresetForm, value: string | boolean) => {
@@ -331,6 +386,17 @@ const App: React.FC = () => {
             )}
             <option value="__add_custom__">+ Add custom preset...</option>
           </select>
+
+          {selectedPreset && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => openEditPreset(selectedPreset)}
+              title="Edit preset"
+              style={{ padding: '6px 10px' }}
+            >
+              <Pencil size={14} />
+            </button>
+          )}
 
           <button
             className="btn btn-primary"
@@ -388,6 +454,7 @@ const App: React.FC = () => {
               <VideoPlayer
                 ref={videoPlayerRef}
                 filePath={filePath!}
+                videoCodec={scanResult.video.codec}
                 videoWidth={scanResult.video.width}
                 videoHeight={scanResult.video.height}
                 frameRate={scanResult.video.frameRate}
@@ -424,7 +491,7 @@ const App: React.FC = () => {
 
               <ContrastChecker
                 filePath={filePath!}
-                duration={scanResult.file.duration}
+                currentTime={videoCurrentTime}
                 outputFolder={outputFolder}
                 onContrastCheck={handleContrastCheck}
               />
@@ -446,26 +513,43 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Custom preset delete buttons */}
+              {/* Custom & overridden preset management */}
               {customPresets.length > 0 && (
                 <div className="card" style={{ padding: '12px' }}>
                   <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '8px' }}>
-                    Custom presets
+                    Your presets
                   </p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {customPresets.map(p => (
-                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                        <span style={{ fontSize: '0.75rem' }}>{p.name}</span>
-                        <button
-                          className="btn btn-icon btn-sm"
-                          onClick={() => deleteCustomPreset(p.id)}
-                          title="Delete preset"
-                          style={{ color: 'var(--color-error)' }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
+                    {customPresets.map(p => {
+                      const isBuiltinOverride = validationPresets.some(b => b.id === p.id);
+                      return (
+                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <span style={{ fontSize: '0.75rem' }}>
+                            {p.name}
+                            {isBuiltinOverride && (
+                              <span style={{ marginLeft: '6px', fontSize: '0.65rem', opacity: 0.6, fontStyle: 'italic' }}>modified</span>
+                            )}
+                          </span>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                              className="btn btn-icon btn-sm"
+                              onClick={() => openEditPreset(p.id)}
+                              title="Edit preset"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              className="btn btn-icon btn-sm"
+                              onClick={() => deleteCustomPreset(p.id)}
+                              title={isBuiltinOverride ? 'Reset to default' : 'Delete preset'}
+                              style={{ color: isBuiltinOverride ? 'var(--color-text-muted)' : 'var(--color-error)' }}
+                            >
+                              {isBuiltinOverride ? <RotateCcw size={12} /> : <X size={12} />}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -486,7 +570,7 @@ const App: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
           }}
-          onClick={e => { if (e.target === e.currentTarget) setShowCustomModal(false); }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowCustomModal(false); setEditingPresetId(null); } }}
         >
           <div
             style={{
@@ -502,10 +586,13 @@ const App: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '1rem', fontWeight: 600 }}>
-                <Plus size={16} style={{ marginRight: '8px', display: 'inline' }} />
-                Add Custom Preset
+                {editingPresetId ? (
+                  <><Pencil size={16} style={{ marginRight: '8px', display: 'inline' }} />Edit Preset</>
+                ) : (
+                  <><Plus size={16} style={{ marginRight: '8px', display: 'inline' }} />Add Custom Preset</>
+                )}
               </h2>
-              <button className="btn btn-icon btn-sm" onClick={() => setShowCustomModal(false)}>
+              <button className="btn btn-icon btn-sm" onClick={() => { setShowCustomModal(false); setEditingPresetId(null); }}>
                 <X size={16} />
               </button>
             </div>
@@ -737,7 +824,7 @@ const App: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '24px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowCustomModal(false)}>
+              <button className="btn btn-secondary" onClick={() => { setShowCustomModal(false); setEditingPresetId(null); }}>
                 Cancel
               </button>
               <button
@@ -745,7 +832,7 @@ const App: React.FC = () => {
                 onClick={saveCustomPreset}
                 disabled={!customForm.name.trim()}
               >
-                Save Preset
+                {editingPresetId ? 'Save Changes' : 'Save Preset'}
               </button>
             </div>
           </div>

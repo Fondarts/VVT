@@ -50,7 +50,7 @@ function canRun(bin: string): Promise<boolean> {
 
 // ── Audio extraction ────────────────────────────────────────────
 
-function extractAudioWav(ffmpegBin: string, videoPath: string, outPath: string): Promise<void> {
+export function extractAudioWav(ffmpegBin: string, videoPath: string, outPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const args = ['-y', '-i', videoPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', outPath];
     const child = spawn(ffmpegBin, args, { windowsHide: true });
@@ -62,6 +62,74 @@ function extractAudioWav(ffmpegBin: string, videoPath: string, outPath: string):
     });
     child.on('error', reject);
   });
+}
+
+// Detect when audio first starts (end of leading silence) using ffmpeg silencedetect
+function detectSpeechStartMs(ffmpegBin: string, audioPath: string): Promise<number> {
+  return new Promise(resolve => {
+    const args = ['-i', audioPath, '-af', 'silencedetect=n=-35dB:d=0.3', '-f', 'null', '-'];
+    const child = spawn(ffmpegBin, args, { windowsHide: true });
+    let stderr = '';
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('close', () => {
+      // First "silence_end" is when the first non-silent audio appears
+      const m = stderr.match(/silence_end:\s*([\d.]+)/);
+      resolve(m ? Math.round(parseFloat(m[1]) * 1000) : 0);
+    });
+    child.on('error', () => resolve(0));
+  });
+}
+
+// ── Segment post-processing ─────────────────────────────────────
+
+interface TranscriptionSegmentRaw { from: number; to: number; text: string }
+
+// Split text at punctuation boundaries, return array of parts (with punctuation kept at end)
+function splitTextAtPunctuation(text: string): string[] {
+  const parts: string[] = [];
+  // Split at strong sentence ends (. ! ?) followed by a space
+  const strongParts = text.split(/(?<=[.!?])\s+/);
+
+  for (const part of strongParts) {
+    // Further split long parts at commas (only if part before comma is ≥ 15 chars)
+    const commaSplit = part.split(/(?<=,)\s+/);
+    if (commaSplit.length > 1 && commaSplit[0].length >= 15) {
+      parts.push(...commaSplit);
+    } else {
+      parts.push(part);
+    }
+  }
+
+  return parts.map(p => p.trim()).filter(p => p.length > 0);
+}
+
+// Re-split segments at punctuation, interpolating timestamps by char position
+function splitSegmentsAtPunctuation(segs: TranscriptionSegmentRaw[]): TranscriptionSegmentRaw[] {
+  const result: TranscriptionSegmentRaw[] = [];
+
+  for (const seg of segs) {
+    const parts = splitTextAtPunctuation(seg.text);
+    if (parts.length <= 1) {
+      result.push(seg);
+      continue;
+    }
+
+    const totalChars = parts.join(' ').length;
+    const totalMs    = seg.to - seg.from;
+    let charPos      = 0;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part    = parts[i];
+      const from    = seg.from + Math.round((charPos / totalChars) * totalMs);
+      charPos      += part.length + (i < parts.length - 1 ? 1 : 0); // +1 for space between parts
+      const to      = i === parts.length - 1
+        ? seg.to
+        : seg.from + Math.round((charPos / totalChars) * totalMs);
+      result.push({ from, to, text: part });
+    }
+  }
+
+  return result;
 }
 
 // ── Whisper execution ───────────────────────────────────────────
@@ -85,17 +153,16 @@ function parseWhisperStdout(text: string): TranscriptionSegmentRaw[] {
   return segs;
 }
 
-interface TranscriptionSegmentRaw { from: number; to: number; text: string }
-
-function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]> {
+function runWhisperProcess(audioPath: string, language = 'auto'): Promise<TranscriptionSegmentRaw[]> {
   return new Promise((resolve, reject) => {
-    // Use output dir same as audio file to avoid permission issues
     const outDir  = path.dirname(audioPath);
     const outFile = path.join(outDir, path.basename(audioPath, '.wav'));
 
     const args = [
       '-m', whisperModel,
       '-f', audioPath,
+      '--language', language,
+      '--split-on-word',
       '--output-json',
       '--output-file', outFile,
     ];
@@ -109,7 +176,6 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
     child.on('error', reject);
 
     child.on('close', code => {
-      // Try JSON output file (whisper writes {outFile}.json)
       const jsonPath = outFile + '.json';
       if (fs.existsSync(jsonPath)) {
         try {
@@ -131,7 +197,6 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
         } catch {/* fall through */}
       }
 
-      // Fallback: parse stdout/stderr for [HH:MM:SS.mmm --> ...] lines
       const combined = stdout + '\n' + stderr;
       const segs = parseWhisperStdout(combined);
       if (segs.length > 0) {
@@ -140,11 +205,10 @@ function runWhisperProcess(audioPath: string): Promise<TranscriptionSegmentRaw[]
       }
 
       if (code !== 0) {
-        // Surface the real whisper error output to the user
         const detail = (stderr || stdout).slice(-600).trim() || '(no output)';
         reject(new Error(`Whisper exited with code ${code}.\n\n${detail}`));
       } else {
-        resolve([]); // exit 0 but no speech detected
+        resolve([]);
       }
     });
   });
@@ -189,7 +253,8 @@ export interface TranscriptionResult {
 
 export async function transcribeVideo(
   videoPath: string,
-  workDir: string
+  workDir: string,
+  language = 'auto'
 ): Promise<TranscriptionResult> {
   if (!whisperBinary) throw new Error('Whisper binary not configured.');
   if (!whisperModel)  throw new Error('Whisper model not configured.');
@@ -199,9 +264,22 @@ export async function transcribeVideo(
 
   try {
     await extractAudioWav(ffmpeg, videoPath, audioPath);
-    const segments = await runWhisperProcess(audioPath);
+
+    // Detect when actual speech starts (end of leading silence)
+    const speechStartMs = await detectSpeechStartMs(ffmpeg, audioPath);
+
+    let segments = await runWhisperProcess(audioPath, language);
+
+    // Fix first segment: if it claims to start at 0 but speech starts later, correct it
+    if (segments.length > 0 && segments[0].from === 0 && speechStartMs > 200) {
+      segments[0] = { ...segments[0], from: speechStartMs };
+    }
+
+    // Re-split segments at punctuation boundaries
+    segments = splitSegmentsAtPunctuation(segments);
+
     const fullText = segments.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
-    return { segments, fullText };
+    return { segments, fullText, language };
   } finally {
     try { fs.unlinkSync(audioPath); } catch {}
   }

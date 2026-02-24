@@ -12,14 +12,16 @@ const electronAPI = {
   },
   
   video: {
-    scan: (filePath: string): Promise<ScanResult> => 
+    scan: (filePath: string): Promise<ScanResult> =>
       ipcRenderer.invoke('video:scan', filePath),
-    generateThumbnails: (filePath: string, outputDir: string): Promise<string[]> => 
+    generateThumbnails: (filePath: string, outputDir: string): Promise<string[]> =>
       ipcRenderer.invoke('video:generateThumbnails', filePath, outputDir),
-    extractFrame: (filePath: string, time: number, outputPath: string): Promise<string> => 
+    extractFrame: (filePath: string, time: number, outputPath: string): Promise<string> =>
       ipcRenderer.invoke('video:extractFrame', filePath, time, outputPath),
-    getWaveform: (filePath: string): Promise<number[]> => 
+    getWaveform: (filePath: string): Promise<number[]> =>
       ipcRenderer.invoke('video:getWaveform', filePath),
+    transcodePreview: (filePath: string): Promise<string> =>
+      ipcRenderer.invoke('video:transcodePreview', filePath),
   },
   
   validation: {
@@ -46,10 +48,34 @@ const electronAPI = {
       ipcRenderer.invoke('whisper:getPath'),
     setPath: (binary: string, model: string): Promise<boolean> =>
       ipcRenderer.invoke('whisper:setPath', binary, model),
-    transcribe: (videoPath: string, workDir: string): Promise<TranscriptionResult> =>
-      ipcRenderer.invoke('whisper:transcribe', videoPath, workDir),
+    transcribe: (videoPath: string, workDir: string, language?: string): Promise<TranscriptionResult> =>
+      ipcRenderer.invoke('whisper:transcribe', videoPath, workDir, language),
     saveSRT: (segments: TranscriptionResult['segments'], outputPath: string): Promise<string> =>
       ipcRenderer.invoke('whisper:saveSRT', segments, outputPath),
+  },
+
+  whisperx: {
+    check: (): Promise<{ available: boolean }> =>
+      ipcRenderer.invoke('whisperx:check'),
+    install: (): Promise<void> =>
+      ipcRenderer.invoke('whisperx:install'),
+    installTorch: (): Promise<void> =>
+      ipcRenderer.invoke('whisperx:installTorch'),
+    getConfig: (): Promise<{ model: string; computeType: string; device: string }> =>
+      ipcRenderer.invoke('whisperx:getConfig'),
+    setConfig: (cfg: { model?: string; computeType?: string; device?: string }): Promise<boolean> =>
+      ipcRenderer.invoke('whisperx:setConfig', cfg),
+    transcribe: (
+      videoPath: string,
+      workDir: string,
+      opts: { model: string; language: string; computeType: string; device: string }
+    ): Promise<TranscriptionResult> =>
+      ipcRenderer.invoke('whisperx:transcribe', videoPath, workDir, opts),
+    onInstallProgress: (cb: (line: string) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, line: string) => cb(line);
+      ipcRenderer.on('whisperx:install-progress', handler);
+      return () => ipcRenderer.removeListener('whisperx:install-progress', handler);
+    },
   },
   
   shell: {

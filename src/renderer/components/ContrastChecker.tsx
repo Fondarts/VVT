@@ -12,7 +12,7 @@ import type { ContrastCheck } from '../../shared/types';
 
 interface ContrastCheckerProps {
   filePath: string;
-  duration: number;
+  currentTime: number;
   outputFolder: string;
   onContrastCheck: (checks: ContrastCheck[]) => void;
 }
@@ -116,12 +116,11 @@ const ColorInput: React.FC<{ label: string; value: string; onChange: (v: string)
 
 // ── Main component ───────────────────────────────────────────────
 
-export const ContrastChecker: React.FC<ContrastCheckerProps> = ({ filePath, duration, outputFolder, onContrastCheck }) => {
-  const [collapsed, setCollapsed]     = useState(false);
-  const [checks, setChecks]           = useState<ContrastCheck[]>([]);
-  const [textColor, setTextColor]     = useState('#ffffff');
-  const [bgColor, setBgColor]         = useState('#000000');
-  const [currentTime, setCurrentTime] = useState(duration / 2);
+export const ContrastChecker: React.FC<ContrastCheckerProps> = ({ filePath, currentTime, outputFolder, onContrastCheck }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  const [checks, setChecks]       = useState<ContrastCheck[]>([]);
+  const [textColor, setTextColor] = useState('#ffffff');
+  const [bgColor, setBgColor]     = useState('#000000');
 
   const addCheck = useCallback(async () => {
     const ratio = getContrastRatio(textColor, bgColor);
@@ -212,18 +211,11 @@ export const ContrastChecker: React.FC<ContrastCheckerProps> = ({ filePath, dura
             </div>
           </div>
 
-          {/* Time slider + add */}
+          {/* Add check at current video time */}
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>
-              Timestamp: {currentTime.toFixed(2)}s
-            </label>
-            <input type="range" min="0" max={duration} step="0.1" value={currentTime}
-              onChange={e => setCurrentTime(parseFloat(e.target.value))}
-              style={{ width: '100%', marginBottom: '8px' }}
-            />
             <button className="btn btn-primary btn-sm" onClick={addCheck} style={{ width: '100%' }}>
               <Plus size={14} style={{ marginRight: '4px', display: 'inline' }} />
-              Add Contrast Check
+              Add Contrast Check @ {currentTime.toFixed(2)}s
             </button>
           </div>
 

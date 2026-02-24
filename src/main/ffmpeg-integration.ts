@@ -270,7 +270,34 @@ export async function getAudioWaveformData(filePath: string): Promise<number[]> 
   });
 }
 
-export async function detectFFmpegPaths(): Promise<{ 
+export async function transcodeToPreview(inputPath: string, outputPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-i', inputPath,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '18',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-movflags', '+faststart',
+      '-y',
+      outputPath,
+    ];
+
+    const child = spawn(ffmpegPath, args, { windowsHide: true });
+
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Transcode failed with exit code ${code}`));
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`FFmpeg transcode error: ${err.message}`));
+    });
+  });
+}
+
+export async function detectFFmpegPaths(): Promise<{
   ffmpeg: string; 
   ffprobe: string;
   ffmpegFound: boolean;

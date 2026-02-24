@@ -11,6 +11,7 @@ import {
   detectFFmpegPaths,
   setFFmpegPaths,
   getFFmpegPaths,
+  transcodeToPreview,
 } from './ffmpeg-integration';
 import {
   detectWhisperPath,
@@ -19,6 +20,14 @@ import {
   transcribeVideo,
   saveSRT,
 } from './whisper-integration';
+import {
+  checkWhisperX,
+  installWhisperX,
+  installTorchCPU,
+  transcribeWithWhisperX,
+  setWhisperXConfig,
+  getWhisperXConfig,
+} from './whisperx-integration';
 import type {
   ScanResult,
   ValidationCheck,
@@ -40,9 +49,22 @@ function configPath() {
 function loadSavedConfig() {
   try {
     const raw = fs.readFileSync(configPath(), 'utf-8');
-    const cfg = JSON.parse(raw) as { whisperBinary?: string; whisperModel?: string };
+    const cfg = JSON.parse(raw) as {
+      whisperBinary?: string;
+      whisperModel?: string;
+      wxModel?: string;
+      wxComputeType?: string;
+      wxDevice?: string;
+    };
     if (cfg.whisperBinary || cfg.whisperModel) {
       setWhisperPaths(cfg.whisperBinary ?? '', cfg.whisperModel ?? '');
+    }
+    if (cfg.wxModel || cfg.wxComputeType || cfg.wxDevice) {
+      setWhisperXConfig({
+        model:       cfg.wxModel       ?? 'base',
+        computeType: cfg.wxComputeType ?? 'int8',
+        device:      cfg.wxDevice      ?? 'cpu',
+      });
     }
   } catch { /* file doesn't exist yet */ }
 }
@@ -50,7 +72,14 @@ function loadSavedConfig() {
 function persistConfig() {
   try {
     const { binary, model } = getWhisperPaths();
-    fs.writeFileSync(configPath(), JSON.stringify({ whisperBinary: binary, whisperModel: model }), 'utf-8');
+    const wx = getWhisperXConfig();
+    fs.writeFileSync(configPath(), JSON.stringify({
+      whisperBinary: binary,
+      whisperModel:  model,
+      wxModel:       wx.model,
+      wxComputeType: wx.computeType,
+      wxDevice:      wx.device,
+    }), 'utf-8');
   } catch { /* non-fatal */ }
 }
 
@@ -296,6 +325,17 @@ ipcMain.handle('video:generateThumbnails', async (_, filePath: string, outputDir
   }
   
   return thumbnails;
+});
+
+ipcMain.handle('video:transcodePreview', async (_, filePath: string) => {
+  const tmpDir = path.join(app.getPath('temp'), 'advalify');
+  await fs.promises.mkdir(tmpDir, { recursive: true });
+  const hash = crypto.createHash('md5').update(filePath).digest('hex').slice(0, 8);
+  const safeBase = path.basename(filePath, path.extname(filePath)).replace(/[^a-z0-9]/gi, '_').slice(0, 32);
+  const outPath = path.join(tmpDir, `preview_${safeBase}_${hash}.mp4`);
+  if (fs.existsSync(outPath)) return outPath;
+  await transcodeToPreview(filePath, outPath);
+  return outPath;
 });
 
 ipcMain.handle('video:extractFrame', async (_, filePath: string, time: number, outputPath: string) => {
@@ -583,12 +623,48 @@ ipcMain.handle('whisper:getPath', async () => {
   return getWhisperPaths();
 });
 
-ipcMain.handle('whisper:transcribe', async (_, videoPath: string, workDir: string) => {
-  return transcribeVideo(videoPath, workDir);
+ipcMain.handle('whisper:transcribe', async (_, videoPath: string, workDir: string, language?: string) => {
+  return transcribeVideo(videoPath, workDir, language ?? 'auto');
 });
 
 ipcMain.handle('whisper:saveSRT', async (_, segments: { from: number; to: number; text: string }[], outputPath: string) => {
   return saveSRT(segments, outputPath);
+});
+
+// ── WhisperX handlers ────────────────────────────────────────────
+
+ipcMain.handle('whisperx:check', async () => {
+  return checkWhisperX();
+});
+
+ipcMain.handle('whisperx:install', async () => {
+  return installWhisperX(line => {
+    mainWindow?.webContents.send('whisperx:install-progress', line);
+  });
+});
+
+ipcMain.handle('whisperx:installTorch', async () => {
+  return installTorchCPU(line => {
+    mainWindow?.webContents.send('whisperx:install-progress', line);
+  });
+});
+
+ipcMain.handle('whisperx:getConfig', async () => {
+  return getWhisperXConfig();
+});
+
+ipcMain.handle('whisperx:setConfig', async (_, cfg: { model?: string; computeType?: string; device?: string }) => {
+  setWhisperXConfig(cfg);
+  persistConfig();
+  return true;
+});
+
+ipcMain.handle('whisperx:transcribe', async (_, videoPath: string, workDir: string, opts: {
+  model: string; language: string; computeType: string; device: string;
+}) => {
+  const result = await transcribeWithWhisperX(videoPath, workDir, opts);
+  const fullText = result.segments.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim();
+  return { segments: result.segments, fullText, language: result.language };
 });
 
 // App events

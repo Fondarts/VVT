@@ -11,12 +11,27 @@ import {
   Maximize,
   Video,
   Subtitles,
+  Loader2,
 } from 'lucide-react';
 import { overlayPresets } from '../../shared/presets';
 import type { TranscriptionSegment } from '../../shared/types';
 
+// Codecs that Chromium cannot decode natively — need FFmpeg transcode for preview
+const NEEDS_TRANSCODE = new Set([
+  'prores', 'apch', 'apcn', 'apcs', 'apco', 'ap4h', 'ap4x',
+  'dnxhd', 'dnxhr',
+  'mpeg2video', 'mpeg1video',
+  'v210', 'r10k', 'r210', 'dpx',
+]);
+
+function needsTranscode(codec: string): boolean {
+  const c = codec.toLowerCase();
+  return NEEDS_TRANSCODE.has(c) || c.startsWith('prores') || c.startsWith('dnx');
+}
+
 interface VideoPlayerProps {
   filePath: string;
+  videoCodec?: string;
   videoWidth: number;
   videoHeight: number;
   frameRate: number;
@@ -31,6 +46,7 @@ export interface VideoPlayerHandle {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   filePath,
+  videoCodec,
   videoWidth,
   videoHeight,
   frameRate,
@@ -50,6 +66,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   const [showSubtitles, setShowSubtitles] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [safezoneDir, setSafezoneDir] = useState<string>('');
+  const [playbackSrc, setPlaybackSrc] = useState(`file://${filePath}`);
+  const [isTranscoding, setIsTranscoding] = useState(false);
+  const [transcodeError, setTranscodeError] = useState<string | null>(null);
 
   useImperativeHandle(ref, () => ({
     seekTo(ms: number) {
@@ -63,6 +82,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   useEffect(() => {
     window.electronAPI.app.getSafezoneDir().then(setSafezoneDir);
   }, []);
+
+  // Auto-transcode unsupported codecs (e.g. ProRes) to H.264 for preview
+  useEffect(() => {
+    setPlaybackSrc(`file://${filePath}`);
+    setTranscodeError(null);
+    if (!videoCodec || !needsTranscode(videoCodec)) return;
+    setIsTranscoding(true);
+    window.electronAPI.video.transcodePreview(filePath)
+      .then(transcodedPath => {
+        setPlaybackSrc(`file://${transcodedPath}`);
+        setIsTranscoding(false);
+      })
+      .catch(err => {
+        setTranscodeError(err instanceof Error ? err.message : 'Transcode failed');
+        setIsTranscoding(false);
+      });
+  }, [filePath, videoCodec]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -310,10 +346,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       >
         <video
           ref={videoRef}
-          src={`file://${filePath}`}
+          src={isTranscoding ? undefined : playbackSrc}
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           onClick={togglePlay}
         />
+        {isTranscoding && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.7)', color: '#fff', gap: '12px',
+          }}>
+            <Loader2 size={32} className="animate-spin" />
+            <span style={{ fontSize: '0.875rem' }}>Converting for preview…</span>
+            <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>{videoCodec?.toUpperCase()} → H.264</span>
+          </div>
+        )}
+        {transcodeError && !isTranscoding && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.7)', color: '#f87171', gap: '8px',
+          }}>
+            <span style={{ fontSize: '0.875rem' }}>Preview conversion failed</span>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, maxWidth: '80%', textAlign: 'center' }}>{transcodeError}</span>
+          </div>
+        )}
         <canvas
           ref={canvasRef}
           style={{
