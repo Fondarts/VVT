@@ -41,3 +41,10 @@ coverage
 # Misc
 *.log
 .cache
+
+# Large binary assets (FFmpeg, Whisper binaries)
+assets/
+whisper-blas-bin-x64/
+
+# Test video files
+TEST/

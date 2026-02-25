@@ -2,6 +2,47 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import * as net from 'net';
+import { spawn, ChildProcess } from 'child_process';
+
+let viteProcess: ChildProcess | null = null;
+
+function isPortListening(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = net.createConnection({ port, host: 'localhost' });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => { socket.destroy(); resolve(false); });
+  });
+}
+
+function waitForPort(port: number, maxRetries = 40): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let retries = 0;
+    const check = () => {
+      const socket = net.createConnection({ port, host: 'localhost' });
+      socket.once('connect', () => { socket.destroy(); resolve(); });
+      socket.once('error', () => {
+        socket.destroy();
+        if (++retries >= maxRetries) { reject(new Error(`Vite did not start on port ${port}`)); return; }
+        setTimeout(check, 500);
+      });
+    };
+    check();
+  });
+}
+
+async function startViteIfNeeded(): Promise<void> {
+  if (await isPortListening(5173)) return; // already running
+  const root = app.getAppPath();
+  const viteScript = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+  viteProcess = spawn(process.execPath, [viteScript], {
+    cwd: root,
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  viteProcess.once('error', (err) => console.error('[Vite] spawn error:', err));
+  await waitForPort(5173);
+}
 import {
   runFFprobe,
   analyzeLoudness,
@@ -86,7 +127,7 @@ function persistConfig() {
   } catch { /* non-fatal */ }
 }
 
-function createMainWindow() {
+async function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
@@ -105,6 +146,7 @@ function createMainWindow() {
 
   // Load the app
   if (process.env.NODE_ENV === 'development') {
+    await startViteIfNeeded();
     mainWindow.loadURL('http://localhost:5173');
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -219,11 +261,15 @@ function inferColorTransfer(w: number, h: number): string {
 }
 
 ipcMain.handle('video:scan', async (_, filePath: string) => {
-  const ffprobeData = await runFFprobe(filePath);
-  const loudness = await analyzeLoudness(filePath);
-  const fastStart = await checkFastStart(filePath);
   const fileStats = fs.statSync(filePath);
-  
+
+  const [ffprobeData, loudness, fastStart, hash] = await Promise.all([
+    runFFprobe(filePath),
+    analyzeLoudness(filePath),
+    checkFastStart(filePath),
+    calculateHash(filePath),
+  ]);
+
   const videoStream = ffprobeData.streams.find(s => s.codec_type === 'video');
   const audioStream = ffprobeData.streams.find(s => s.codec_type === 'audio');
 
@@ -232,7 +278,7 @@ ipcMain.handle('video:scan', async (_, filePath: string) => {
   }
 
   const [width, height] = [videoStream.width || 0, videoStream.height || 0];
-  
+
   // Parse frame rate
   let frameRate = 0;
   if (videoStream.r_frame_rate) {
@@ -254,7 +300,7 @@ ipcMain.handle('video:scan', async (_, filePath: string) => {
     durationFormatted: formatDuration(duration),
     container: ffprobeData.format.format_name.split(',')[0],
     format: ffprobeData.format.format_long_name || ffprobeData.format.format_name,
-    hash: await calculateHash(filePath),
+    hash,
   };
 
   const videoMetadata: VideoMetadata = {
@@ -313,21 +359,17 @@ ipcMain.handle('video:generateThumbnails', async (_, filePath: string, outputDir
 
   await fs.promises.mkdir(outputDir, { recursive: true });
 
-  for (let i = 0; i < numThumbs; i++) {
-    let time: number;
-    if (i === 0) {
-      time = 0;                               // first frame
-    } else if (i === numThumbs - 1) {
-      time = Math.max(0, duration - 0.1);     // last frame
-    } else {
-      time = (duration / (numThumbs - 1)) * i; // evenly spaced in between
-    }
-    const outputPath = path.join(outputDir, `thumb_${i + 1}.jpg`);
-    await extractThumbnail(filePath, time, outputPath);
-    thumbnails.push(outputPath);
-  }
-  
-  return thumbnails;
+  const times = Array.from({ length: numThumbs }, (_, i) => {
+    if (i === 0) return 0;
+    if (i === numThumbs - 1) return Math.max(0, duration - 0.1);
+    return (duration / (numThumbs - 1)) * i;
+  });
+
+  const outputPaths = times.map((_, i) => path.join(outputDir, `thumb_${i + 1}.jpg`));
+
+  await Promise.all(times.map((time, i) => extractThumbnail(filePath, times[i], outputPaths[i])));
+
+  return outputPaths;
 });
 
 ipcMain.handle('video:transcodePreview', async (_, filePath: string) => {
@@ -671,12 +713,13 @@ ipcMain.handle('whisperx:transcribe', async (_, videoPath: string, workDir: stri
 });
 
 // App events
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   loadSavedConfig();
-  createMainWindow();
+  await createMainWindow();
 });
 
 app.on('window-all-closed', () => {
+  viteProcess?.kill();
   if (process.platform !== 'darwin') {
     app.quit();
   }
