@@ -943,41 +943,56 @@ const MIME_MAP: Record<string, string> = {
 
 /**
  * Returns true if the current browser can play this file natively
- * (no transcode needed). Tests canPlayType first, then probes actual
- * metadata load for a definitive answer.
+ * (no transcode needed).
+ *
+ * ProRes/MOV strategy: only macOS Safari has VideoToolbox-backed ProRes support.
+ * Chrome/Firefox on macOS use their own media stack and cannot decode ProRes.
+ * UA detection is the only reliable method — oncanplay is unreliable under COEP.
+ *
+ * For other formats (MP4, WebM, etc.) we do a real decode probe.
  */
 export function canBrowserPlay(file: File): Promise<boolean> {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const mimeType = file.type || MIME_MAP[ext] || 'video/mp4';
+
+  // Quick rejection: canPlayType('') means definitely unsupported container
+  const probe = document.createElement('video');
+  if (probe.canPlayType(mimeType) === '') return Promise.resolve(false);
+
+  // ProRes / MOV: only macOS Safari can decode via VideoToolbox.
+  // Chrome and Firefox on Mac use their own decoders and do NOT support ProRes.
+  if (ext === 'mov' || mimeType === 'video/quicktime') {
+    const ua = navigator.userAgent;
+    const onMac    = /Macintosh|Mac OS X/.test(ua);
+    const isSafari = /Version\/[\d.]+.*Safari/.test(ua) &&
+                     !/Chrome|Chromium|Edg/.test(ua);
+    return Promise.resolve(onMac && isSafari);
+  }
+
+  // For all other formats: do a real decode probe.
+  // oncanplay fires when the browser confirms it can actually start playback.
   return new Promise(resolve => {
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    const mimeType = file.type || MIME_MAP[ext] || 'video/mp4';
-
-    // Quick rejection: canPlayType('') means definitely unsupported
-    const probe = document.createElement('video');
-    if (probe.canPlayType(mimeType) === '') { resolve(false); return; }
-
-    // Actual test: trigger decode, not just container parsing.
-    // 'oncanplay' fires only when the browser has confirmed the codec
-    // is decodable (unlike 'onloadedmetadata' which fires on container parse).
-    const url = URL.createObjectURL(file);
+    const url   = URL.createObjectURL(file);
     const video = document.createElement('video');
-    video.muted = true;
-    video.preload = 'auto';   // allow buffering beyond metadata
-    let settled = false;
+    video.muted   = true;
+    video.preload = 'auto';
+    let settled   = false;
 
     const done = (result: boolean) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      video.src = '';          // release decoder resources
+      video.src = '';
       URL.revokeObjectURL(url);
       resolve(result);
     };
 
-    const timer = setTimeout(() => done(false), 6000);
+    const timer = setTimeout(() => done(false), 4000);
     video.oncanplay = () => done(true);
-    video.onerror  = () => done(false);
+    video.onerror   = () => done(false);
     video.src = url;
     video.load();
+    video.play().catch(() => { /* autoplay blocked — canplay may still fire */ });
   });
 }
 
