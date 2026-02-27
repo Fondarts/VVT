@@ -959,14 +959,14 @@ export function canBrowserPlay(file: File): Promise<boolean> {
   const probe = document.createElement('video');
   if (probe.canPlayType(mimeType) === '') return Promise.resolve(false);
 
-  // ProRes / MOV: only macOS Safari can decode via VideoToolbox.
-  // Chrome and Firefox on Mac use their own decoders and do NOT support ProRes.
+  // ProRes / MOV: on macOS, both Safari AND Chrome can decode via VideoToolbox /
+  // AVFoundation. Firefox on macOS uses its own stack and cannot play ProRes.
+  // On Windows/Linux no browser can play ProRes natively.
   if (ext === 'mov' || mimeType === 'video/quicktime') {
-    const ua = navigator.userAgent;
-    const onMac    = /Macintosh|Mac OS X/.test(ua);
-    const isSafari = /Version\/[\d.]+.*Safari/.test(ua) &&
-                     !/Chrome|Chromium|Edg/.test(ua);
-    return Promise.resolve(onMac && isSafari);
+    const ua        = navigator.userAgent;
+    const onMac     = /Macintosh|Mac OS X/.test(ua);
+    const isFirefox = /Firefox\//.test(ua);
+    return Promise.resolve(onMac && !isFirefox);
   }
 
   // For all other formats: do a real decode probe.
