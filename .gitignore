@@ -48,3 +48,9 @@ whisper-blas-bin-x64/
 
 # Test video files
 TEST/
+
+# Large FFmpeg WASM multithreaded core (local only)
+public/ffmpeg-core-mt/
+
+# WEB/ subdirectory (kept for dev, not tracked on this branch)
+WEB/
