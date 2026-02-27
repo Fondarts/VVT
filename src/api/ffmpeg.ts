@@ -955,24 +955,29 @@ export function canBrowserPlay(file: File): Promise<boolean> {
     const probe = document.createElement('video');
     if (probe.canPlayType(mimeType) === '') { resolve(false); return; }
 
-    // Actual test: try loading the file metadata
+    // Actual test: trigger decode, not just container parsing.
+    // 'oncanplay' fires only when the browser has confirmed the codec
+    // is decodable (unlike 'onloadedmetadata' which fires on container parse).
     const url = URL.createObjectURL(file);
     const video = document.createElement('video');
-    video.preload = 'metadata';
+    video.muted = true;
+    video.preload = 'auto';   // allow buffering beyond metadata
     let settled = false;
 
     const done = (result: boolean) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      video.src = '';          // release decoder resources
       URL.revokeObjectURL(url);
       resolve(result);
     };
 
-    const timer = setTimeout(() => done(false), 3000);
-    video.onloadedmetadata = () => done(true);
-    video.onerror = () => done(false);
+    const timer = setTimeout(() => done(false), 6000);
+    video.oncanplay = () => done(true);
+    video.onerror  = () => done(false);
     video.src = url;
+    video.load();
   });
 }
 
