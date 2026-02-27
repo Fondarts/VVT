@@ -345,28 +345,162 @@ export async function checkFastStart(file: File): Promise<FastStartInfo> {
   return { enabled: false, moovAt: -1 };
 }
 
+// ── ITU-R BS.1770-4 K-weighting loudness (native Web Audio API path) ─────────
+
+// K-weighting filter coefficients — ITU-R BS.1770-4, 48 kHz
+// Stage 1: high-shelf pre-filter
+const KW_PRE_B: [number, number, number] = [ 1.53512485958697, -2.69169618940638,  1.19839281085285];
+const KW_PRE_A: [number, number, number] = [ 1.0,              -1.69065929318241,  0.73248077421585];
+// Stage 2: 2nd-order high-pass
+const KW_HP_B:  [number, number, number] = [ 1.0,  -2.0,               1.0];
+const KW_HP_A:  [number, number, number] = [ 1.0,  -1.99004745483398,  0.99007225036510];
+
+/** Direct Form II Transposed biquad IIR filter (2nd order, in-place safe). */
+function biquad(
+  b: [number, number, number],
+  a: [number, number, number],
+  x: Float32Array,
+): Float32Array {
+  const out = new Float32Array(x.length);
+  let s1 = 0, s2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const y = b[0] * x[i] + s1;
+    s1 = b[1] * x[i] - a[1] * y + s2;
+    s2 = b[2] * x[i] - a[2] * y;
+    out[i] = y;
+  }
+  return out;
+}
+
+/**
+ * Compute ITU-R BS.1770-4 integrated loudness from an AudioBuffer.
+ * The buffer is resampled to 48 kHz internally if needed.
+ * Throws for files > 2 hours (fall back to FFmpeg loudnorm).
+ */
+async function analyzeLoudnessJS(audio: AudioBuffer): Promise<{ lufs: number; truePeak: number }> {
+  // Resample to 48 kHz using OfflineAudioContext if needed
+  let buf = audio;
+  if (audio.sampleRate !== 48000) {
+    const nCh = audio.numberOfChannels;
+    const nSamp = Math.ceil(audio.duration * 48000);
+    const off = new OfflineAudioContext(nCh, nSamp, 48000);
+    const src = off.createBufferSource();
+    src.buffer = audio;
+    src.connect(off.destination);
+    src.start(0);
+    buf = await off.startRendering();
+  }
+
+  if (buf.duration > 7200) throw new Error('File too long for JS loudness analysis');
+
+  const nCh = Math.min(buf.numberOfChannels, 5); // max 5.1, ignore LFE
+  // BS.1770 channel weights: L R C Ls Rs
+  const W = [1.0, 1.0, 1.0, 1.41, 1.41];
+
+  // Apply K-weighting (two biquad stages) per channel
+  const filtered: Float32Array[] = [];
+  for (let c = 0; c < nCh; c++) {
+    filtered.push(biquad(KW_HP_B, KW_HP_A, biquad(KW_PRE_B, KW_PRE_A, buf.getChannelData(c))));
+  }
+
+  // 400 ms blocks, 75% overlap (100 ms hop) — BS.1770-4 §3.2
+  const blockSz = Math.round(48000 * 0.4);
+  const hopSz   = Math.round(48000 * 0.1);
+  const nSamp   = filtered[0].length;
+
+  const blocks: number[] = [];
+  for (let s = 0; s + blockSz <= nSamp; s += hopSz) {
+    let sum = 0;
+    for (let c = 0; c < nCh; c++) {
+      const ch = filtered[c];
+      let sq = 0;
+      for (let i = s; i < s + blockSz; i++) sq += ch[i] * ch[i];
+      sum += W[c] * sq / blockSz;
+    }
+    blocks.push(sum);
+  }
+
+  if (!blocks.length) return { lufs: -99, truePeak: 0 };
+
+  // Absolute gate −70 LUFS  (10^(−70/10) ≈ 1e-7)
+  const g1 = blocks.filter(v => v > 1e-7);
+  if (!g1.length) return { lufs: -70, truePeak: 0 };
+
+  // Relative gate = mean(g1) − 10 LU  (linear: × 0.1)
+  const mean1 = g1.reduce((a, b) => a + b, 0) / g1.length;
+  const g2 = g1.filter(v => v > mean1 * 0.1);
+  if (!g2.length) return { lufs: -70, truePeak: 0 };
+
+  const integrated = g2.reduce((a, b) => a + b, 0) / g2.length;
+  const lufs = -0.691 + 10 * Math.log10(Math.max(integrated, 1e-10));
+
+  // True peak: max absolute sample over original unfiltered data
+  let tp = 0;
+  for (let c = 0; c < audio.numberOfChannels; c++) {
+    const ch = audio.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) { const v = Math.abs(ch[i]); if (v > tp) tp = v; }
+  }
+
+  return {
+    lufs:     Math.round(lufs * 10) / 10,
+    truePeak: tp > 1e-9 ? Math.round(20 * Math.log10(tp) * 10) / 10 : -99,
+  };
+}
+
 // ── Loudness analysis ────────────────────────────────────────────────────────
+//
+// 3-tier strategy (fastest → slowest):
+//   Tier 1 — native browser decode + JS BS.1770-4  (MP4/WebM/etc., < 200 MB)
+//   Tier 2 — FFmpeg WAV extract → native decode + JS BS.1770-4 (ProRes, MXF, …)
+//             WAV extract is fast: just demux audio track (no video decode).
+//             PCM source (common in ProRes) makes even the extract near-instant.
+//   Tier 3 — FFmpeg loudnorm filter (slowest fallback, any codec/length)
 
 export async function analyzeLoudness(
   ff: FFmpeg,
-  inputName: string
+  inputName: string,
+  file?: File,
 ): Promise<{ lufs: number; truePeak: number }> {
+  // ── Tier 1: native browser decode ─────────────────────────────────────────
+  if (file && file.size < 200 * 1024 * 1024) {
+    try {
+      const ctx = new AudioContext();
+      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      await ctx.close();
+      return await analyzeLoudnessJS(buf);
+    } catch { /* browser can't decode this format — fall through */ }
+  }
+
+  // ── Tier 2: FFmpeg audio extract → WAV → native decode → JS BS.1770-4 ────
+  const wavOut = '_ld_audio.wav';
+  try {
+    await ff.exec([
+      '-threads', '1', '-i', inputName,
+      '-vn', '-af', 'aresample=48000',
+      '-c:a', 'pcm_s16le', '-f', 'wav', '-y', wavOut,
+    ]);
+    const wavRaw = await ff.readFile(wavOut) as Uint8Array<ArrayBuffer>;
+    try { await ff.deleteFile(wavOut); } catch { /* ignore */ }
+
+    // Copy to a plain ArrayBuffer so decodeAudioData doesn't fight WASM heap ownership
+    const wavCopy = wavRaw.buffer.slice(wavRaw.byteOffset, wavRaw.byteOffset + wavRaw.byteLength);
+    const ctx = new AudioContext();
+    const buf = await ctx.decodeAudioData(wavCopy);
+    await ctx.close();
+    return await analyzeLoudnessJS(buf);
+  } catch { /* fall through to loudnorm */ }
+
+  // ── Tier 3: FFmpeg loudnorm (original approach — slowest fallback) ─────────
   const logs: string[] = [];
   const logHandler = ({ message }: { message: string }) => logs.push(message);
   ff.on('log', logHandler);
-
   try {
     await ff.exec([
-      '-threads', '1',   // prevent MT sub-threads (proxy deadlock in web worker)
-      '-i', inputName,
+      '-threads', '1', '-i', inputName,
       '-af', 'loudnorm=print_format=json',
-      '-f', 'null',
-      '-',
+      '-f', 'null', '-',
     ]);
-  } catch {
-    // FFmpeg exits non-zero when writing to null, that's expected
-  }
-
+  } catch { /* exits non-zero */ }
   ff.off('log', logHandler);
 
   const output = logs.join('\n');
@@ -378,9 +512,7 @@ export async function analyzeLoudness(
         lufs: parseFloat(data.input_i) || -99,
         truePeak: parseFloat(data.input_tp) || 0,
       };
-    } catch {
-      // fall through
-    }
+    } catch { /* fall through */ }
   }
 
   return { lufs: -99, truePeak: 0 };
@@ -735,22 +867,38 @@ export async function runScan(
   onScanReady?.(initialScan);
 
   // ── 6. Transcode to H.264 for preview (ProRes/DNxHD/MPEG-2 etc.) ──
+  // Skip transcode if the browser can play the codec natively (e.g. ProRes on macOS).
   if (onTranscodeReady && needsTranscodeCodec(video.codec)) {
-    onProgress?.(30, `Converting ${video.codec.toUpperCase()} → H.264…`);
-    try {
-      const url = await transcodeInFs(ff, inputPath, (p) =>
-        onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
-      );
-      onTranscodeReady(url);
-    } catch (e) {
-      onTranscodeError?.(e instanceof Error ? e.message : String(e));
+    const nativePlay = await canBrowserPlay(file);
+    if (nativePlay) {
+      // Browser plays natively — hand the original file directly to the player
+      onTranscodeReady(URL.createObjectURL(file));
+    } else {
+      onProgress?.(30, `Converting ${video.codec.toUpperCase()} → H.264…`);
+      try {
+        let url: string;
+        try {
+          // WebCodecs path: FFmpeg decodes → raw YUV → HW VideoEncoder (NVENC / QSV / VCE)
+          url = await transcodeWithWebCodecs(ff, inputPath, video, duration, (p) =>
+            onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
+          );
+        } catch {
+          // WebCodecs unavailable or HW encoder missing → WASM libx264 fallback
+          url = await transcodeInFs(ff, inputPath, (p) =>
+            onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
+          );
+        }
+        onTranscodeReady(url);
+      } catch (e) {
+        onTranscodeError?.(e instanceof Error ? e.message : String(e));
+      }
     }
   }
 
-  // ── 7. Loudness (full audio decode — slow for long files) ──────────
+  // ── 7. Loudness (3-tier: native Web Audio → WAV extract → FFmpeg loudnorm) ─
   if (audioBase && onLoudnessReady) {
     onProgress?.(50, 'Measuring loudness…');
-    const { lufs, truePeak } = await analyzeLoudness(ff, inputPath);
+    const { lufs, truePeak } = await analyzeLoudness(ff, inputPath, file);
     onLoudnessReady(lufs, truePeak);
   }
 
@@ -775,6 +923,57 @@ export async function runScan(
     try { await ff.deleteFile(inputPath); } catch { /* ignore */ }
   }
   onProgress?.(100, 'Done');
+}
+
+// ── Browser native playback detection ────────────────────────────────────────
+//
+// On macOS, Chrome/Safari can play ProRes MOV via the OS codec.
+// On Windows, they cannot. Detecting this avoids an unnecessary FFmpeg transcode.
+
+const MIME_MAP: Record<string, string> = {
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mkv: 'video/x-matroska',
+  webm: 'video/webm',
+  mxf: 'application/mxf',
+  mts: 'video/mp2t',
+  ts: 'video/mp2t',
+};
+
+/**
+ * Returns true if the current browser can play this file natively
+ * (no transcode needed). Tests canPlayType first, then probes actual
+ * metadata load for a definitive answer.
+ */
+export function canBrowserPlay(file: File): Promise<boolean> {
+  return new Promise(resolve => {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const mimeType = file.type || MIME_MAP[ext] || 'video/mp4';
+
+    // Quick rejection: canPlayType('') means definitely unsupported
+    const probe = document.createElement('video');
+    if (probe.canPlayType(mimeType) === '') { resolve(false); return; }
+
+    // Actual test: try loading the file metadata
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    let settled = false;
+
+    const done = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => done(false), 3000);
+    video.onloadedmetadata = () => done(true);
+    video.onerror = () => done(false);
+    video.src = url;
+  });
 }
 
 // ── Codec detection for browser-incompatible formats ────────────────────────
@@ -812,7 +1011,7 @@ async function transcodeInFs(
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '28',           // Higher CRF = faster encode, fine for preview
-      '-vf', 'scale=-2:720',  // Max 720p — halves encoding work vs 1080p/4K
+      '-vf', 'scale=-2:480',  // 480p preview — faster encode than 720p
       '-c:a', 'aac',
       '-b:a', '128k',
       '-movflags', '+faststart',
@@ -829,6 +1028,192 @@ async function transcodeInFs(
   const url = URL.createObjectURL(blob);
   try { await ff.deleteFile(outputName); } catch { /* ignore */ }
   return url;
+}
+
+// ── WebCodecs hybrid transcode ────────────────────────────────────────────────
+//
+// Strategy: FFmpeg WASM decodes ProRes → raw YUV (video.raw), processed in
+// 3-second chunks to keep WASM FS memory bounded (~55 MB per chunk at 480p).
+// Each frame is wrapped in a VideoFrame and fed to WebCodecs VideoEncoder,
+// which uses OS hardware acceleration (NVENC / Intel QSV / AMD VCE on Windows).
+// Audio is extracted as WAV → encoded to AAC via WebCodecs AudioEncoder.
+// Everything is muxed into an in-memory MP4 via mp4-muxer.
+//
+// Falls back to transcodeInFs (WASM libx264) if:
+//   - VideoEncoder not supported or no H.264 HW codec available
+//   - Any step fails (file read, encoding, muxing errors)
+
+async function transcodeWithWebCodecs(
+  ff: FFmpeg,
+  inputPath: string,
+  video: VideoMetadata,
+  duration: number,
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  // ── Feature detection ──────────────────────────────────────────────
+  if (typeof VideoEncoder === 'undefined' || typeof AudioEncoder === 'undefined') {
+    throw new Error('WebCodecs not available');
+  }
+
+  // Compute 480p output dimensions (even width required by H.264)
+  const outHeight = Math.min(480, video.height);
+  const outWidth  = Math.round(video.width * outHeight / video.height) & ~1;
+  const fps       = video.frameRate || 25;
+  const frameSize = outWidth * outHeight * 3 >> 1; // I420 bytes per frame
+
+  // H.264 Main Profile level 3.1 — supports up to 480p @ 30fps
+  const vcConfig: VideoEncoderConfig = {
+    codec:       'avc1.4D001F',
+    width:       outWidth,
+    height:      outHeight,
+    bitrate:     2_000_000,
+    framerate:   fps,
+    latencyMode: 'quality',
+  };
+  const support = await VideoEncoder.isConfigSupported(vcConfig);
+  if (!support.supported) throw new Error('H.264 VideoEncoder not supported on this device');
+
+  // ── mp4-muxer (dynamic import — only loaded when WebCodecs path is taken) ──
+  const { Muxer, ArrayBufferTarget } = await import('mp4-muxer');
+
+  // ── Audio extraction (optional — video-only output if this fails) ──
+  let audioBuffer: AudioBuffer | null = null;
+  const wavFile = '_wc_audio.wav';
+  try {
+    await ff.exec([
+      '-threads', '1', '-i', inputPath,
+      '-vn', '-af', 'aresample=48000',
+      '-c:a', 'pcm_s16le', '-f', 'wav', '-y', wavFile,
+    ]);
+    const wavRaw = await ff.readFile(wavFile) as Uint8Array<ArrayBuffer>;
+    try { await ff.deleteFile(wavFile); } catch { /* ignore */ }
+    const wavCopy = wavRaw.buffer.slice(wavRaw.byteOffset, wavRaw.byteOffset + wavRaw.byteLength);
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    audioBuffer = await ctx.decodeAudioData(wavCopy);
+    await ctx.close();
+  } catch { /* no audio — video-only */ }
+
+  const nCh = audioBuffer?.numberOfChannels ?? 2;
+
+  // ── Configure muxer ────────────────────────────────────────────────
+  const target = new ArrayBufferTarget();
+  const muxer  = new Muxer({
+    target,
+    video: { codec: 'avc', width: outWidth, height: outHeight, frameRate: fps },
+    ...(audioBuffer ? { audio: { codec: 'aac', sampleRate: 48000, numberOfChannels: nCh } } : {}),
+    fastStart:              'in-memory',
+    firstTimestampBehavior: 'offset',
+  });
+
+  // ── Video encoding — chunked (3 s each) ────────────────────────────
+  const videoEncoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error:  (e) => { throw e; },
+  });
+  videoEncoder.configure(vcConfig);
+
+  const chunkSecs = 3;
+  let globalFrame = 0;
+
+  for (let chunkStart = 0; chunkStart < duration; chunkStart += chunkSecs) {
+    const chunkEnd    = Math.min(chunkStart + chunkSecs, duration);
+    const chunkFrames = Math.round((chunkEnd - chunkStart) * fps);
+    const rawFile     = '_wc_chunk.yuv';
+
+    // Extract raw YUV for this chunk (no audio, scale to 480p)
+    await ff.exec([
+      '-threads', '1',
+      '-ss', chunkStart.toFixed(6), '-t', (chunkEnd - chunkStart).toFixed(6),
+      '-i', inputPath,
+      '-an',
+      '-vf', `scale=${outWidth}:${outHeight}`,
+      '-pix_fmt', 'yuv420p',
+      '-f', 'rawvideo', '-y', rawFile,
+    ]);
+    const rawData = await ff.readFile(rawFile) as Uint8Array<ArrayBuffer>;
+    try { await ff.deleteFile(rawFile); } catch { /* ignore */ }
+
+    // Copy out of WASM heap — VideoFrame needs a detached ArrayBuffer
+    const rawCopy = rawData.buffer.slice(rawData.byteOffset, rawData.byteOffset + rawData.byteLength);
+    const maxFrames = Math.floor(rawCopy.byteLength / frameSize);
+
+    for (let i = 0; i < Math.min(chunkFrames, maxFrames); i++) {
+      const frameBuf  = rawCopy.slice(i * frameSize, (i + 1) * frameSize);
+      const timestamp = Math.round(globalFrame * 1_000_000 / fps); // microseconds
+      const frame     = new VideoFrame(frameBuf, {
+        format:      'I420',
+        codedWidth:  outWidth,
+        codedHeight: outHeight,
+        timestamp,
+        duration: Math.round(1_000_000 / fps),
+      });
+      videoEncoder.encode(frame, { keyFrame: globalFrame % Math.round(fps * 2) === 0 });
+      frame.close();
+      globalFrame++;
+    }
+
+    // Flush after each chunk so chunks are muxed incrementally
+    await videoEncoder.flush();
+    onProgress?.(Math.round((chunkEnd / duration) * (audioBuffer ? 70 : 95)));
+  }
+
+  videoEncoder.close();
+
+  // ── Audio encoding (WebCodecs AudioEncoder → AAC) ──────────────────
+  if (audioBuffer) {
+    const acConfig: AudioEncoderConfig = {
+      codec:            'mp4a.40.2', // AAC-LC
+      sampleRate:       48000,
+      numberOfChannels: nCh,
+      bitrate:          128_000,
+    };
+    const aSupport = await AudioEncoder.isConfigSupported(acConfig);
+    if (aSupport.supported) {
+      const audioEncoder = new AudioEncoder({
+        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+        error:  (e) => console.warn('[WebCodecs] AudioEncoder error:', e),
+      });
+      audioEncoder.configure(acConfig);
+
+      // Feed PCM data in 4096-sample frames (standard AAC block size)
+      const frameLen = 4096;
+      const numSamples = audioBuffer.length;
+
+      // Build interleaved Float32 view of all channel data
+      const interleaved = new Float32Array(numSamples * nCh);
+      for (let c = 0; c < nCh; c++) {
+        const ch = audioBuffer.getChannelData(c);
+        for (let s = 0; s < numSamples; s++) interleaved[s * nCh + c] = ch[s];
+      }
+
+      for (let offset = 0; offset < numSamples; offset += frameLen) {
+        const count     = Math.min(frameLen, numSamples - offset);
+        const timestamp = Math.round(offset / 48000 * 1_000_000);
+        const slice     = interleaved.subarray(offset * nCh, (offset + count) * nCh);
+        const audioData = new AudioData({
+          format:           'f32',  // 'f32' = interleaved 32-bit float (non-planar)
+          sampleRate:       48000,
+          numberOfFrames:   count,
+          numberOfChannels: nCh,
+          timestamp,
+          data: slice,
+        });
+        audioEncoder.encode(audioData);
+        audioData.close();
+      }
+
+      await audioEncoder.flush();
+      audioEncoder.close();
+    }
+    onProgress?.(96);
+  }
+
+  // ── Finalize and return blob URL ────────────────────────────────────
+  muxer.finalize();
+  const { buffer } = target;
+  const blob = new Blob([buffer], { type: 'video/mp4' });
+  onProgress?.(100);
+  return URL.createObjectURL(blob);
 }
 
 // ── Transcode to H.264 for browser preview ───────────────────────────────────
