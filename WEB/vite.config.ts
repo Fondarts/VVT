@@ -12,6 +12,8 @@ export default defineConfig({
       // Required for SharedArrayBuffer (FFmpeg.wasm multi-thread mode)
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
+      // Allow cross-origin workers (e.g. internal @ffmpeg/ffmpeg chunk) to importScripts() our files
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
   },
   build: {

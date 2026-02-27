@@ -178,8 +178,8 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
         { label: 'Sample Rate',       detected: `${audio.sampleRate} Hz`,                             checkId: 'audio-sample-rate' },
         { label: 'Channels',          detected: `${audio.channels} (${audio.channelLayout})`,         checkId: 'audio-channels' },
         { label: 'Bit Depth',         detected: audio.bitDepth ? `${audio.bitDepth}-bit` : 'N/A' },
-        { label: 'Loudness',          detected: `${audio.lufs} LUFS`,                                 checkId: 'audio-lufs' },
-        { label: 'True Peak',         detected: `${audio.truePeak} dBTP`,                             checkId: 'audio-truepeak' },
+        { label: 'Loudness',          detected: audio.lufs === -99 ? 'Measuring…' : `${audio.lufs} LUFS`,       checkId: 'audio-lufs' },
+        { label: 'True Peak',         detected: audio.lufs === -99 ? 'Measuring…' : `${audio.truePeak} dBTP`, checkId: 'audio-truepeak' },
       ] as RowDef[],
     }] : []),
   ];

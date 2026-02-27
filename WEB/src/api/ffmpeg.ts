@@ -8,7 +8,7 @@
  * Served locally to avoid COEP issues with importScripts() + cross-origin CDN URLs.
  */
 
-import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import type {
   ScanResult,
@@ -24,26 +24,23 @@ let _ffmpeg: FFmpeg | null = null;
 let _loaded = false;
 let _loadPromise: Promise<FFmpeg> | null = null;
 
-const BASE_URL = '/ffmpeg-core';
+const BASE_ST = '/ffmpeg-core';   // single-thread, served from public/ffmpeg-core/
 
 export async function loadFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (_loaded && _ffmpeg) return _ffmpeg;
-
-  // Prevent multiple concurrent loads
   if (_loadPromise) return _loadPromise;
 
   _loadPromise = (async () => {
     _ffmpeg = new FFmpeg();
+    if (onLog) _ffmpeg.on('log', ({ message }) => onLog(message));
 
-    if (onLog) {
-      _ffmpeg.on('log', ({ message }) => onLog(message));
-    }
-
-    // Use absolute URLs so Vite doesn't try to resolve them as module imports.
-    // toBlobURL fetches via fetch() and wraps in a blob URL the worker can importScripts().
-    const base = `${location.origin}${BASE_URL}`;
+    const base = `${location.origin}${BASE_ST}`;
+    // Single-thread mode only.
+    // Multi-thread (@ffmpeg/core-mt) requires pthread proxy calls from sub-threads
+    // back to the main emscripten thread, but that thread is blocked in Atomics.wait()
+    // during exec() — causing an unrecoverable deadlock. ST is reliable and fast enough.
     await _ffmpeg.load({
-      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
+      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
       wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
     });
 
@@ -360,6 +357,7 @@ export async function analyzeLoudness(
 
   try {
     await ff.exec([
+      '-threads', '1',   // prevent MT sub-threads (proxy deadlock in web worker)
       '-i', inputName,
       '-af', 'loudnorm=print_format=json',
       '-f', 'null',
@@ -410,10 +408,13 @@ export async function scanVideoFile(
   ff.on('log', probeLogHandler);
 
   try {
-    // Running ffmpeg with just -i forces it to print stream info and exit 1
-    await ff.exec(['-hide_banner', '-v', 'info', '-i', inputName, '-f', 'null', '-']);
+    // Running ffmpeg with just -i (no output) prints stream info and exits 1.
+    // We intentionally omit "-f null -" to avoid triggering MT video decoder
+    // thread creation (H.264 slice threads proxy to the main emscripten thread
+    // which is blocked in Atomics.wait → deadlock in MT mode).
+    await ff.exec(['-hide_banner', '-v', 'info', '-i', inputName]);
   } catch {
-    // Expected: exits 1 because output is /dev/null equivalent
+    // Expected: exits 1 because no output was specified
   }
 
   ff.off('log', probeLogHandler);
@@ -511,7 +512,7 @@ export async function generateThumbnails(
     const dLogs: string[] = [];
     const dH = ({ message }: { message: string }) => dLogs.push(message);
     ff.on('log', dH);
-    try { await ff.exec(['-hide_banner', '-v', 'info', '-i', inputName, '-f', 'null', '-']); } catch { /* expected */ }
+    try { await ff.exec(['-hide_banner', '-v', 'info', '-i', inputName]); } catch { /* expected */ }
     ff.off('log', dH);
     const dMatch = dLogs.join('\n').match(/Duration:\s*(\d{2}):(\d{2}):(\d{2}\.\d+)/);
     duration = dMatch ? parseInt(dMatch[1]) * 3600 + parseInt(dMatch[2]) * 60 + parseFloat(dMatch[3]) : 60;
@@ -527,6 +528,7 @@ export async function generateThumbnails(
     const thumbName = `thumb_${i}.jpg`;
     try {
       await ff.exec([
+        '-threads', '1',  // prevent MT decoder sub-threads
         '-ss', t.toFixed(3), '-i', inputName,
         '-vframes', '1', '-q:v', '3', '-vf', 'scale=320:-1', '-y', thumbName,
       ]);
@@ -585,7 +587,7 @@ async function _getWaveformFFmpeg(file: File): Promise<number[]> {
   const outputName = 'wave_output.raw';
   await ff.writeFile(inputName, await fetchFile(file));
   try {
-    await ff.exec(['-i', inputName, '-vn', '-af', 'aresample=8000', '-f', 's16le', '-acodec', 'pcm_s16le', '-ac', '1', outputName]);
+    await ff.exec(['-threads', '1', '-i', inputName, '-vn', '-af', 'aresample=8000', '-f', 's16le', '-acodec', 'pcm_s16le', '-ac', '1', outputName]);
     const rawData = await ff.readFile(outputName);
     const int16 = new Int16Array((rawData as Uint8Array<ArrayBuffer>).buffer);
     const target = 400;
@@ -606,44 +608,80 @@ async function _getWaveformFFmpeg(file: File): Promise<number[]> {
   }
 }
 
-// ── Unified scan (writes file once, coordinates all operations) ───────────────
+// ── Unified scan ─────────────────────────────────────────────────────────────
+//
+// Pipeline (fastest-to-slowest, progressive):
+//   1. Load FFmpeg (singleton, fast after first run)
+//   2. Mount file via WORKERFS  ← no full-file copy, instant for any size
+//   3. Probe headers only       ← reads a few KB, very fast
+//   4. checkFastStart           ← pure JS, instant
+//   5. onScanReady fires        ← specs visible immediately, lufs=pending
+//   6. Transcode if needed      ← ProRes/DNxHD/MPEG-2 → H.264 preview
+//   7. Loudness analysis        ← full audio decode (slow for long files)
+//   8. onLoudnessReady fires    ← UI updates loudness display
+//   9. Waveform (Web Audio API) ← native, fast
+//  10. Thumbnails (FFmpeg)      ← sequential frame extractions
 
 export async function runScan(
   file: File,
   opts?: {
     thumbnailCount?: number;
     onProgress?: (pct: number, label: string) => void;
-    /** Called as soon as metadata + specs are ready (before thumbnails/waveform). */
+    /** Fires as soon as metadata + codec specs are ready (before loudness). */
     onScanReady?: (scan: ScanResult) => void;
-    /** Called with transcoded H.264 blob URL if the source codec needs transcoding. */
+    /** Fires when loudness analysis completes. Update audio.lufs / audio.truePeak. */
+    onLoudnessReady?: (lufs: number, truePeak: number) => void;
+    /** Fires with a transcoded H.264 blob URL when the source codec needs it. */
     onTranscodeReady?: (url: string) => void;
-    /** Called if transcoding fails. */
+    /** Fires if transcoding fails. */
     onTranscodeError?: (err: string) => void;
-    /** Called when waveform data is ready. */
+    /** Fires when waveform data is ready. */
     onWaveformReady?: (waveform: number[]) => void;
-    /** Called when all thumbnails are ready. */
+    /** Fires when all thumbnails are ready. */
     onThumbnailsReady?: (thumbnails: string[]) => void;
   }
 ): Promise<void> {
-  const { thumbnailCount = 8, onProgress, onScanReady, onTranscodeReady, onTranscodeError, onWaveformReady, onThumbnailsReady } = opts ?? {};
+  const {
+    thumbnailCount = 8, onProgress,
+    onScanReady, onLoudnessReady,
+    onTranscodeReady, onTranscodeError,
+    onWaveformReady, onThumbnailsReady,
+  } = opts ?? {};
 
+  // ── 1. Load FFmpeg (singleton, cached after first load) ────────────
   onProgress?.(5, 'Loading FFmpeg…');
   const ff = await loadFFmpeg();
 
   const ext = file.name.split('.').pop()?.toLowerCase() ?? 'mp4';
-  const inputName = `input.${ext}`;
 
-  // ── Write file ONCE ────────────────────────────────────────────────
-  onProgress?.(10, 'Reading file…');
-  await ff.writeFile(inputName, await fetchFile(file));
+  // ── 2. Mount file via WORKERFS (no file copy — instant for any size) ─
+  // Falls back to writeFile if WORKERFS is unavailable in this build.
+  const MOUNT = '/work';
+  let inputPath: string;
+  let useWorkerFS = false;
 
-  // ── Probe ──────────────────────────────────────────────────────────
-  onProgress?.(20, 'Analyzing metadata…');
+  onProgress?.(8, 'Mounting file…');
+  try {
+    await ff.mount(FFFSType.WORKERFS, { files: [file] }, MOUNT);
+    inputPath = `${MOUNT}/${file.name}`;
+    useWorkerFS = true;
+  } catch {
+    // WORKERFS not compiled into this core build — fall back to full copy
+    inputPath = `input.${ext}`;
+    onProgress?.(10, 'Reading file…');
+    await ff.writeFile(inputPath, await fetchFile(file));
+  }
+
+  // ── 3. Probe: read container headers only (no frame decode) ────────
+  onProgress?.(15, 'Analyzing metadata…');
   const probeLogs: string[] = [];
   const probeH = ({ message }: { message: string }) => probeLogs.push(message);
   ff.on('log', probeH);
-  try { await ff.exec(['-hide_banner', '-v', 'info', '-i', inputName, '-f', 'null', '-']); } catch { /* expected */ }
+  // "-i file" without output: FFmpeg prints stream info and exits 1.
+  // No "-f null -" → no frame decode → no decoder threads → no deadlock.
+  try { await ff.exec(['-hide_banner', '-v', 'info', '-i', inputPath]); } catch { /* exits 1 */ }
   ff.off('log', probeH);
+
   const probeOutput = probeLogs.join('\n');
   const { container, containerFormatProfile, duration, video, audio: audioBase } = parseFFmpegInfo(probeOutput);
   if (!video) throw new Error('No video stream found in file');
@@ -664,18 +702,13 @@ export async function runScan(
     });
   }
 
-  // ── Fast start ─────────────────────────────────────────────────────
-  onProgress?.(30, 'Checking fast-start…');
+  // ── 4. Fast start (pure JS — instant) ──────────────────────────────
+  onProgress?.(25, 'Checking fast-start…');
   const fastStart = await checkFastStart(file);
 
-  // ── Loudness ───────────────────────────────────────────────────────
-  let audio: AudioMetadata | undefined;
-  if (audioBase) {
-    onProgress?.(38, 'Measuring loudness…');
-    const { lufs, truePeak } = await analyzeLoudness(ff, inputName);
-    audio = { ...audioBase, lufs, truePeak };
-  }
-
+  // ── 5. Fire onScanReady NOW (specs visible before loudness) ────────
+  // Audio loudness comes later via onLoudnessReady.
+  // lufs: -99 is the "not yet measured" sentinel shown in the UI.
   const fileMetadata: FileMetadata = {
     name: file.name,
     path: file.name,
@@ -693,42 +726,54 @@ export async function runScan(
     formatProfile: containerFormatProfile,
   };
 
-  const scan: ScanResult = { file: fileMetadata, video, audio, fastStart };
+  const initialScan: ScanResult = {
+    file: fileMetadata,
+    video,
+    audio: audioBase ? { ...audioBase, lufs: -99, truePeak: 0 } : undefined,
+    fastStart,
+  };
+  onScanReady?.(initialScan);
 
-  // ── Fire scan ready — video player + specs appear NOW ─────────────
-  onScanReady?.(scan);
-
-  // ── Transcode to H.264 if needed (before waveform/thumbnails) ──────
-  // File is already in WASM FS — reuse it to avoid a second upload.
+  // ── 6. Transcode to H.264 for preview (ProRes/DNxHD/MPEG-2 etc.) ──
   if (onTranscodeReady && needsTranscodeCodec(video.codec)) {
-    onProgress?.(42, `Converting ${video.codec.toUpperCase()} → H.264…`);
+    onProgress?.(30, `Converting ${video.codec.toUpperCase()} → H.264…`);
     try {
-      const url = await transcodeInFs(ff, inputName, (p) =>
-        onProgress?.(42 + Math.round(p * 0.2), `Converting… ${p}%`)
+      const url = await transcodeInFs(ff, inputPath, (p) =>
+        onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
       );
       onTranscodeReady(url);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      onTranscodeError?.(msg);
+      onTranscodeError?.(e instanceof Error ? e.message : String(e));
     }
   }
 
-  // ── Waveform (sequential — after transcode) ─────────────────────────
-  onProgress?.(63, 'Generating waveform…');
+  // ── 7. Loudness (full audio decode — slow for long files) ──────────
+  if (audioBase && onLoudnessReady) {
+    onProgress?.(50, 'Measuring loudness…');
+    const { lufs, truePeak } = await analyzeLoudness(ff, inputPath);
+    onLoudnessReady(lufs, truePeak);
+  }
+
+  // ── 8. Waveform (Web Audio API — native, no FFmpeg) ────────────────
+  onProgress?.(70, 'Generating waveform…');
   const wf = await getWaveformData(file);
   onWaveformReady?.(wf);
 
-  // ── Thumbnails (file already in FS) ────────────────────────────────
-  onProgress?.(68, 'Generating thumbnails…');
+  // ── 9. Thumbnails ──────────────────────────────────────────────────
+  onProgress?.(75, 'Generating thumbnails…');
   const thumbnails = await generateThumbnails(
     file, thumbnailCount,
-    (i, total) => onProgress?.(68 + Math.round((i / total) * 30), 'Generating thumbnails…'),
-    { ff, inputName, duration }
+    (i, total) => onProgress?.(75 + Math.round((i / total) * 23), 'Generating thumbnails…'),
+    { ff, inputName: inputPath, duration }
   );
   onThumbnailsReady?.(thumbnails);
 
   // ── Cleanup ────────────────────────────────────────────────────────
-  try { await ff.deleteFile(inputName); } catch { /* ignore */ }
+  if (useWorkerFS) {
+    try { await ff.unmount(MOUNT); } catch { /* ignore */ }
+  } else {
+    try { await ff.deleteFile(inputPath); } catch { /* ignore */ }
+  }
   onProgress?.(100, 'Done');
 }
 
@@ -762,6 +807,7 @@ async function transcodeInFs(
 
   try {
     await ff.exec([
+      '-threads', '1',        // prevent MT encoder sub-threads
       '-i', inputName,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',

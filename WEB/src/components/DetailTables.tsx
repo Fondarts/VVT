@@ -120,21 +120,25 @@ export const DetailTables: React.FC<DetailTablesProps> = ({ scanResult }) => {
           <tr>
             <td>Integrated Loudness (LUFS)</td>
             <td style={{
-              color: scanResult.audio.lufs >= -16 && scanResult.audio.lufs <= -14
-                ? 'var(--color-success)'
-                : 'var(--color-warning)'
+              color: scanResult.audio.lufs === -99
+                ? 'var(--color-text-muted)'
+                : scanResult.audio.lufs >= -16 && scanResult.audio.lufs <= -14
+                  ? 'var(--color-success)'
+                  : 'var(--color-warning)'
             }}>
-              {scanResult.audio.lufs} LUFS
+              {scanResult.audio.lufs === -99 ? 'Measuring…' : `${scanResult.audio.lufs} LUFS`}
             </td>
           </tr>
           <tr>
             <td>True Peak (dBTP)</td>
             <td style={{
-              color: scanResult.audio.truePeak <= -1.0
-                ? 'var(--color-success)'
-                : 'var(--color-error)'
+              color: scanResult.audio.lufs === -99
+                ? 'var(--color-text-muted)'
+                : scanResult.audio.truePeak <= -1.0
+                  ? 'var(--color-success)'
+                  : 'var(--color-error)'
             }}>
-              {scanResult.audio.truePeak} dBTP
+              {scanResult.audio.lufs === -99 ? 'Measuring…' : `${scanResult.audio.truePeak} dBTP`}
             </td>
           </tr>
         </tbody>

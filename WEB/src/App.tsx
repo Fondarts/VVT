@@ -255,6 +255,11 @@ const App: React.FC = () => {
             setTranscodeProgress(0);
           }
         },
+        onLoudnessReady: (lufs, truePeak) => {
+          setScanResult(prev =>
+            prev?.audio ? { ...prev, audio: { ...prev.audio, lufs, truePeak } } : prev
+          );
+        },
         onTranscodeReady: (url) => {
           setVideoSrc(prev => {
             if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);

@@ -248,36 +248,39 @@ export const validateAgainstPreset = (
   if (scanResult.audio) {
     const audio = scanResult.audio;
 
-    if (preset.loudnessMin !== undefined || preset.loudnessMax !== undefined) {
-      const minOk = preset.loudnessMin === undefined || audio.lufs >= preset.loudnessMin;
-      const maxOk = preset.loudnessMax === undefined || audio.lufs <= preset.loudnessMax;
-      const expParts: string[] = [];
-      if (preset.loudnessMin !== undefined) expParts.push(`≥ ${preset.loudnessMin}`);
-      if (preset.loudnessMax !== undefined) expParts.push(`≤ ${preset.loudnessMax}`);
-      checks.push({
-        id: 'audio-lufs',
-        name: 'Loudness (LUFS)',
-        category: 'audio',
-        status: minOk && maxOk ? 'pass' : 'warn',
-        message: `${audio.lufs.toFixed(1)} LUFS`,
-        expected: expParts.join(', ') + ' LUFS',
-        detected: `${audio.lufs.toFixed(1)} LUFS`,
-      });
-    } else if (preset.loudnessTarget !== undefined) {
-      const tolerance = preset.loudnessTolerance ?? 1;
-      const lufsInRange = Math.abs(audio.lufs - preset.loudnessTarget) <= tolerance;
-      checks.push({
-        id: 'audio-lufs',
-        name: 'Loudness (LUFS)',
-        category: 'audio',
-        status: lufsInRange ? 'pass' : 'warn',
-        message: `${audio.lufs.toFixed(1)} LUFS`,
-        expected: `${preset.loudnessTarget} ±${tolerance} LUFS`,
-        detected: `${audio.lufs.toFixed(1)} LUFS`,
-      });
+    // lufs === -99 is the "measuring" sentinel — skip check until real value arrives
+    if (audio.lufs !== -99) {
+      if (preset.loudnessMin !== undefined || preset.loudnessMax !== undefined) {
+        const minOk = preset.loudnessMin === undefined || audio.lufs >= preset.loudnessMin;
+        const maxOk = preset.loudnessMax === undefined || audio.lufs <= preset.loudnessMax;
+        const expParts: string[] = [];
+        if (preset.loudnessMin !== undefined) expParts.push(`≥ ${preset.loudnessMin}`);
+        if (preset.loudnessMax !== undefined) expParts.push(`≤ ${preset.loudnessMax}`);
+        checks.push({
+          id: 'audio-lufs',
+          name: 'Loudness (LUFS)',
+          category: 'audio',
+          status: minOk && maxOk ? 'pass' : 'warn',
+          message: `${audio.lufs.toFixed(1)} LUFS`,
+          expected: expParts.join(', ') + ' LUFS',
+          detected: `${audio.lufs.toFixed(1)} LUFS`,
+        });
+      } else if (preset.loudnessTarget !== undefined) {
+        const tolerance = preset.loudnessTolerance ?? 1;
+        const lufsInRange = Math.abs(audio.lufs - preset.loudnessTarget) <= tolerance;
+        checks.push({
+          id: 'audio-lufs',
+          name: 'Loudness (LUFS)',
+          category: 'audio',
+          status: lufsInRange ? 'pass' : 'warn',
+          message: `${audio.lufs.toFixed(1)} LUFS`,
+          expected: `${preset.loudnessTarget} ±${tolerance} LUFS`,
+          detected: `${audio.lufs.toFixed(1)} LUFS`,
+        });
+      }
     }
 
-    if (preset.truePeakMax !== undefined) {
+    if (preset.truePeakMax !== undefined && audio.lufs !== -99) {
       checks.push({
         id: 'audio-truepeak',
         name: 'True Peak',
