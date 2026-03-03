@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScanLine, Trash2, Loader2 } from 'lucide-react';
+import { ScanLine, Trash2, Loader2, FileDown } from 'lucide-react';
 import type { BatchItem } from '../../shared/types';
 
 interface BatchToolbarProps {
@@ -7,9 +7,11 @@ interface BatchToolbarProps {
   onScanAll: () => void;
   onClear: () => void;
   isInitializing: boolean;
+  selectedItem?: BatchItem | null;
+  onExportPDF?: () => void;
 }
 
-export const BatchToolbar: React.FC<BatchToolbarProps> = ({ items, onScanAll, onClear, isInitializing }) => {
+export const BatchToolbar: React.FC<BatchToolbarProps> = ({ items, onScanAll, onClear, isInitializing, selectedItem, onExportPDF }) => {
   const pending  = items.filter(i => i.status === 'pending').length;
   const scanning = items.filter(i => i.status === 'scanning').length;
   const done     = items.filter(i => i.status === 'done' || i.status === 'error').length;
@@ -36,6 +38,19 @@ export const BatchToolbar: React.FC<BatchToolbarProps> = ({ items, onScanAll, on
         {done}/{total} complete
         {scanning > 0 && ` · ${scanning} scanning`}
       </span>
+
+      {onExportPDF && (
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onExportPDF}
+          disabled={!selectedItem?.scanResult}
+          title={selectedItem?.scanResult ? `Export PDF for ${selectedItem.file.name}` : 'Select a scanned item to export'}
+          style={{ padding: '6px 10px' }}
+        >
+          <FileDown size={14} />
+          <span style={{ marginLeft: 4, fontSize: '0.75rem' }}>Export PDF</span>
+        </button>
+      )}
 
       <button
         className="btn btn-secondary btn-sm"

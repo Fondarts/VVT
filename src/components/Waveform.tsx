@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Activity } from 'lucide-react';
+import { Activity, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface WaveformProps {
   audioData: number[];
@@ -20,10 +20,11 @@ function dBToLinear(dB: number): number {
   return Math.pow(10, dB / 20);
 }
 
-const WAVEFORM_HEIGHT = 180;
+const WAVEFORM_HEIGHT = 80;
 const VU_WIDTH = 52;
 
 export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, currentTime, videoEl, truePeakMax }) => {
+  const [collapsed, setCollapsed] = useState(false);
   const [vScale, setVScale] = useState(1);
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
   const vuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -340,28 +341,35 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
 
   return (
     <div className="card">
-      <div className="card-header">
+      <div
+        className="card-header"
+        onClick={() => setCollapsed(c => !c)}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+      >
         <h3 className="card-title" style={{ fontSize: '0.875rem' }}>
+          {collapsed ? <ChevronRight size={14} style={{ marginRight: '6px', display: 'inline' }} /> : <ChevronDown size={14} style={{ marginRight: '6px', display: 'inline' }} />}
           <Activity size={14} style={{ marginRight: '8px', display: 'inline' }} />
           Audio Waveform
         </h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-          <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-            scale ×{vScale.toFixed(1)}
-          </span>
-          <input
-            type="range"
-            min={1}
-            max={8}
-            step={0.5}
-            value={vScale}
-            onChange={e => setVScale(parseFloat(e.target.value))}
-            style={{ width: '80px', cursor: 'pointer', accentColor: '#3b82f6' }}
-            title="Vertical scale"
-          />
-        </div>
+        {!collapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
+            <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+              scale ×{vScale.toFixed(1)}
+            </span>
+            <input
+              type="range"
+              min={1}
+              max={8}
+              step={0.5}
+              value={vScale}
+              onChange={e => setVScale(parseFloat(e.target.value))}
+              style={{ width: '80px', cursor: 'pointer', accentColor: '#3b82f6' }}
+              title="Vertical scale"
+            />
+          </div>
+        )}
       </div>
-      <div className="card-content" style={{ padding: '12px' }}>
+      {!collapsed && <div className="card-content" style={{ padding: '12px' }}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
           {/* Waveform */}
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -415,7 +423,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
             </div>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };

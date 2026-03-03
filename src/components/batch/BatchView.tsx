@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
-import type { ValidationPreset } from '../../shared/types';
+import React, { useState, useRef, useEffect } from 'react';
+import type { ValidationPreset, ValidationReport } from '../../shared/types';
 import type { UseBatchReturn } from '../../hooks/useBatch';
+import { generatePDF } from '../../utils/pdfGenerator';
 import { BatchDropZone } from './BatchDropZone';
 import { BatchToolbar } from './BatchToolbar';
 import { BatchGrid } from './BatchGrid';
@@ -18,6 +19,16 @@ export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, all
   const hasInitialized = useRef(false);
 
   const selectedItem = batch.items.find(i => i.id === selectedId) ?? null;
+
+  // Auto-select first item whenever nothing is selected but items exist
+  useEffect(() => {
+    if (selectedId === null && batch.items.length > 0) {
+      const firstId = batch.items[0].id;
+      setSelectedId(firstId);
+      batch.loadThumbnails(firstId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch.items.length, selectedId]);
 
   const handleScanAll = async () => {
     if (!hasInitialized.current) {
@@ -37,6 +48,25 @@ export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, all
   const handleRemove = (id: string) => {
     if (selectedId === id) setSelectedId(null);
     batch.removeItem(id);
+  };
+
+  const handleExportPDF = async () => {
+    if (!selectedItem?.scanResult) return;
+    const report: ValidationReport = {
+      timestamp: new Date().toISOString(),
+      presetUsed: selectedPreset,
+      result: selectedItem.validationResult || 'COMPLIANT',
+      file: selectedItem.scanResult.file,
+      detected: selectedItem.scanResult,
+      checks: selectedItem.checks,
+      contrastChecks: selectedItem.contrastChecks,
+      thumbnails: selectedItem.thumbnails,
+      audioWaveform: selectedItem.waveformData,
+      outputFolder: '',
+      transcription: selectedItem.transcription ?? undefined,
+    };
+    const name = selectedItem.scanResult.file.name.replace(/\.[^.]+$/, '');
+    await generatePDF(report, `Kissd_VVT_Report_${name}.pdf`);
   };
 
   return (
@@ -65,6 +95,8 @@ export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, all
               onScanAll={handleScanAll}
               onClear={batch.clear}
               isInitializing={isInitializing}
+              selectedItem={selectedItem}
+              onExportPDF={handleExportPDF}
             />
             <BatchGrid
               items={batch.items}
@@ -83,6 +115,7 @@ export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, all
           selectedPreset={selectedPreset}
           allPresets={allPresets}
           onClose={() => setSelectedId(null)}
+          onUpdateItem={batch.updateItem}
         />
       )}
     </div>

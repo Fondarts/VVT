@@ -239,6 +239,8 @@ export interface BatchItem {
   waveformData: number[];
   videoSrc: string | null;
   error: string | null;
+  contrastChecks: ContrastCheck[];
+  transcription: TranscriptionResult | null;
 }
 
 export interface AudioLoudness {

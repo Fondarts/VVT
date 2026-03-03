@@ -520,7 +520,7 @@ const App: React.FC = () => {
     <div className="app">
       <header className="app-header">
         <div className="logo">
-          <span style={{ color: '#ef4444' }}>Kissd</span><span style={{ color: 'var(--color-text-primary)' }}> Video Validation Tool V01</span>
+          <span style={{ color: '#ef4444' }}>Kissd</span><span style={{ color: 'var(--color-text-primary)' }}> Video Validation Tool V2</span>
         </div>
         <div className="header-actions">
           {/* Mode toggle */}

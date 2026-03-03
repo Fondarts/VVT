@@ -10,6 +10,7 @@ export interface UseBatchReturn {
   clear: () => void;
   removeItem: (id: string) => void;
   loadThumbnails: (id: string) => Promise<void>;
+  updateItem: (id: string, patch: Partial<BatchItem>) => void;
 }
 
 export function useBatch(
@@ -149,6 +150,8 @@ export function useBatch(
       waveformData: [],
       videoSrc: URL.createObjectURL(file),
       error: null,
+      contrastChecks: [],
+      transcription: null,
     }));
     queueRef.current.push(...newItems.map(i => i.id));
     setItems(prev => [...prev, ...newItems]);
@@ -205,5 +208,9 @@ export function useBatch(
     };
   }, []);
 
-  return { items, addFiles, scanAll, clear, removeItem, loadThumbnails };
+  const exposedUpdateItem = useCallback((id: string, patch: Partial<BatchItem>) => {
+    updateItem(id, patch);
+  }, [updateItem]);
+
+  return { items, addFiles, scanAll, clear, removeItem, loadThumbnails, updateItem: exposedUpdateItem };
 }

@@ -500,17 +500,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
             </label>
           )}
 
-          <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.75rem' }}>
+              <input
+                type="checkbox"
+                className="toggle-checkbox"
+                checked={showGrid}
+                onChange={e => setShowGrid(e.target.checked)}
+              />
+              <span className="toggle-slider"></span>
+              <Grid3X3 size={12} style={{ display: 'inline' }} />
+              <span>Grid</span>
+            </label>
+            <Maximize size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
             <input
-              type="checkbox"
-              className="toggle-checkbox"
-              checked={showGrid}
-              onChange={e => setShowGrid(e.target.checked)}
+              type="range"
+              min="1"
+              max="2"
+              step="0.1"
+              value={zoom}
+              onChange={e => setZoom(parseFloat(e.target.value))}
+              style={{ width: '70px' }}
             />
-            <span className="toggle-slider"></span>
-            <Grid3X3 size={12} style={{ display: 'inline' }} />
-            <span>Grid</span>
-          </label>
+          </div>
 
           {subtitles && subtitles.length > 0 && (
             <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.75rem' }}>
@@ -525,20 +537,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
               <span>Subtitles</span>
             </label>
           )}
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem' }}>
-            <Maximize size={12} />
-            <span>Zoom:</span>
-            <input
-              type="range"
-              min="1"
-              max="2"
-              step="0.1"
-              value={zoom}
-              onChange={e => setZoom(parseFloat(e.target.value))}
-              style={{ width: '80px' }}
-            />
-          </label>
         </div>
       </div>
     </div>
