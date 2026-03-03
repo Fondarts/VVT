@@ -616,6 +616,81 @@ export async function scanVideoFile(
 // ── Thumbnail generation ─────────────────────────────────────────────────────
 
 /**
+ * Browser-native thumbnail fallback: uses an offscreen <video> element + Canvas.
+ * Works for any format the browser can play natively (H.264 MP4, WebM, etc.).
+ * Returns data URLs so no blob URL management is needed.
+ */
+async function generateThumbnailsNative(
+  file: File,
+  duration: number,
+  count: number,
+  onProgress?: (i: number, total: number) => void,
+): Promise<string[]> {
+  const src = URL.createObjectURL(file);
+  const thumbnails: string[] = [];
+
+  try {
+    await new Promise<void>((resolve) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.preload = 'metadata';
+
+      const timestamps = Array.from({ length: count }, (_, i) =>
+        count > 1 ? Math.min(duration * (i / (count - 1)), duration - 0.5) : duration * 0.5
+      );
+      let idx = 0;
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        video.onseeked = null;
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        video.src = '';
+        resolve();
+      };
+
+      timer = setTimeout(done, 15_000);
+
+      const capture = () => {
+        const w = video.videoWidth, h = video.videoHeight;
+        if (w > 0 && h > 0) {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 320;
+            canvas.height = Math.max(1, Math.round(h / w * 320));
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+              if (dataUrl.length > 200) thumbnails.push(dataUrl);
+            }
+          } catch { /* ignore */ }
+        }
+        onProgress?.(idx + 1, count);
+        idx++;
+        if (idx < timestamps.length) {
+          video.currentTime = timestamps[idx];
+        } else {
+          done();
+        }
+      };
+
+      video.onseeked = capture;
+      video.onloadedmetadata = () => { video.currentTime = timestamps[0] ?? 0; };
+      video.onerror = done;
+      video.src = src;
+    });
+  } catch { /* ignore */ }
+
+  URL.revokeObjectURL(src);
+  return thumbnails;
+}
+
+/**
  * Generate thumbnails. When called from runScan, accepts a pre-written ff+inputName+duration
  * to avoid redundant file writes and duration probes.
  */
@@ -662,16 +737,26 @@ export async function generateThumbnails(
       await ff.exec([
         '-threads', '1',  // prevent MT decoder sub-threads
         '-ss', t.toFixed(3), '-i', inputName,
-        '-vframes', '1', '-q:v', '3', '-vf', 'scale=320:-1', '-y', thumbName,
+        '-vframes', '1', '-q:v', '3', '-vf', 'scale=320:-2', '-y', thumbName,
       ]);
       const data = await ff.readFile(thumbName);
       blobUrls.push(URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })));
       try { await ff.deleteFile(thumbName); } catch { /* ignore */ }
-    } catch { /* skip */ }
+    } catch (err) {
+      console.warn(`[thumbnail] frame ${i} exec failed:`, err);
+    }
     onProgress?.(i + 1, thumbCount);
   }
 
   if (ownedInput) try { await ff.deleteFile(inputName); } catch { /* ignore */ }
+
+  // Browser-native fallback: if FFmpeg produced no thumbnails (e.g. unsupported exec in
+  // fresh WASM instance), capture frames via <video> + canvas for natively-playable files.
+  if (blobUrls.length === 0) {
+    const dur = opts?.duration ?? duration ?? 60;
+    const nativeThumbs = await generateThumbnailsNative(file, dur, thumbCount, onProgress);
+    if (nativeThumbs.length > 0) return nativeThumbs;
+  }
 
   return blobUrls;
 }
@@ -1279,6 +1364,146 @@ export function captureFrameFromVideo(
   } catch {
     return null;
   }
+}
+
+// ── Batch pool (2 independent FFmpeg instances for concurrent scanning) ───────
+//
+// Each slot is a fully separate WASM heap + virtual FS.
+// Two slots can mount and process different files in parallel without interference.
+
+// Pool = pure concurrency semaphore (max 2 simultaneous scans).
+// Each scan creates its OWN fresh FFmpeg instance so accumulated WASM global
+// state from previous exec() calls cannot corrupt subsequent probes.
+// Core + WASM blob URLs are preloaded once so new instances load from memory.
+interface PoolSlot { busy: boolean; }
+
+const POOL_SIZE = 2;
+let _pool: PoolSlot[] | null = null;
+let _batchCoreURL: string | null = null;
+let _batchWasmURL: string | null = null;
+let _batchInitPromise: Promise<void> | null = null;
+
+export async function initBatchPool(): Promise<void> {
+  if (_pool && _batchCoreURL) return;
+  if (_batchInitPromise) return _batchInitPromise;
+
+  _batchInitPromise = (async () => {
+    _pool = Array.from({ length: POOL_SIZE }, () => ({ busy: false }));
+    const base = `${location.origin}${BASE_ST}`;
+    [_batchCoreURL, _batchWasmURL] = await Promise.all([
+      toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
+      toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+    ]);
+  })();
+
+  return _batchInitPromise;
+}
+
+export function acquirePoolSlot(): PoolSlot | null {
+  if (!_pool) return null;
+  const slot = _pool.find(s => !s.busy);
+  if (slot) { slot.busy = true; return slot; }
+  return null;
+}
+
+export function releasePoolSlot(slot: PoolSlot): void {
+  slot.busy = false;
+}
+
+/** Scans a file using a fresh FFmpeg instance — prevents WASM state corruption on reuse. */
+export async function runScanOnSlot(
+  _slot: PoolSlot,
+  file: File,
+  opts?: Parameters<typeof runScan>[1]
+): Promise<void> {
+  if (!_batchCoreURL || !_batchWasmURL) throw new Error('Batch pool not initialized');
+
+  const {
+    onProgress,
+    onScanReady, onLoudnessReady,
+    onWaveformReady,
+  } = opts ?? {};
+
+  // Fresh instance per scan — clean WASM heap, no residual state from previous files
+  onProgress?.(5, 'Loading engine…');
+  const ff = new FFmpeg();
+  await ff.load({ coreURL: _batchCoreURL, wasmURL: _batchWasmURL });
+
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'mp4';
+  const inputPath = `input.${ext}`;  // unique per instance; no name collision possible
+
+  onProgress?.(12, 'Reading file…');
+  await ff.writeFile(inputPath, await fetchFile(file));
+
+  onProgress?.(18, 'Analyzing metadata…');
+  const probeLogs: string[] = [];
+  const probeH = ({ message }: { message: string }) => probeLogs.push(message);
+  ff.on('log', probeH);
+  try { await ff.exec(['-hide_banner', '-v', 'info', '-i', inputPath]); } catch { /* exits 1 */ }
+  ff.off('log', probeH);
+
+  const probeOutput = probeLogs.join('\n');
+  const { container, containerFormatProfile, duration, video, audio: audioBase } = parseFFmpegInfo(probeOutput);
+  if (!video) throw new Error('No video stream found in file');
+
+  const creationTimeMatch = probeOutput.match(/creation_time\s*:\s*(\S+)/);
+  let creationDate: string | undefined;
+  if (creationTimeMatch) {
+    try {
+      creationDate = new Date(creationTimeMatch[1]).toLocaleString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { /* ignore */ }
+  }
+  if (!creationDate) {
+    creationDate = new Date(file.lastModified).toLocaleString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  }
+
+  onProgress?.(28, 'Checking fast-start…');
+  const fastStart = await checkFastStart(file);
+
+  const fileMetadata: FileMetadata = {
+    name: file.name,
+    path: file.name,
+    extension: ext,
+    sizeBytes: file.size,
+    sizeFormatted: formatBytes(file.size),
+    duration,
+    durationFormatted: formatDuration(duration),
+    container,
+    format: container,
+    mimeType: file.type || undefined,
+    width: video.width,
+    height: video.height,
+    creationDate,
+    formatProfile: containerFormatProfile,
+  };
+
+  const initialScan: ScanResult = {
+    file: fileMetadata,
+    video,
+    audio: audioBase ? { ...audioBase, lufs: -99, truePeak: 0 } : undefined,
+    fastStart,
+  };
+  onScanReady?.(initialScan);
+
+  if (audioBase && onLoudnessReady) {
+    onProgress?.(50, 'Measuring loudness…');
+    const { lufs, truePeak } = await analyzeLoudness(ff, inputPath, file);
+    onLoudnessReady(lufs, truePeak);
+  }
+
+  onProgress?.(70, 'Generating waveform…');
+  const wf = await getWaveformData(file);
+  onWaveformReady?.(wf);
+
+  // Thumbnails are generated on-demand (when user opens detail panel), not during scan.
+  try { await ff.deleteFile(inputPath); } catch { /* ignore */ }
+  onProgress?.(100, 'Done');
+  // Terminate the worker to free the WASM heap immediately
+  try { (ff as unknown as { terminate: () => void }).terminate(); } catch { /* ignore */ }
 }
 
 // ── SRT export (pure JS, no FFmpeg needed) ───────────────────────────────────

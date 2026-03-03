@@ -29,6 +29,8 @@ import {
   needsTranscodeCodec,
 } from './api/ffmpeg';
 import { preloadWhisperWorker } from './api/whisper';
+import { useBatch } from './hooks/useBatch';
+import { BatchView } from './components/batch/BatchView';
 import { VideoPlayer } from './components/VideoPlayer';
 import type { VideoPlayerHandle } from './components/VideoPlayer';
 import { CheckResults } from './components/CheckResults';
@@ -87,6 +89,7 @@ interface CustomPresetForm { name: string; rules: Record<string, RuleState>; }
 const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
 
 const App: React.FC = () => {
+  const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +129,8 @@ const App: React.FC = () => {
   ];
 
   const [selectedPreset, setSelectedPreset] = useState<string>('');
+  const batch = useBatch(selectedPreset, allPresets);
+
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStatus, setScanStatus] = useState('');
@@ -518,7 +523,26 @@ const App: React.FC = () => {
           <span style={{ color: '#ef4444' }}>Kissd</span><span style={{ color: 'var(--color-text-primary)' }}> Video Validation Tool V01</span>
         </div>
         <div className="header-actions">
-          {/* Hidden file input */}
+          {/* Mode toggle */}
+          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
+            <button
+              className={`btn btn-sm ${mode === 'single' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border-color)' }}
+              onClick={() => setMode('single')}
+            >
+              Single
+            </button>
+            <button
+              className={`btn btn-sm ${mode === 'batch' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: 0 }}
+              onClick={() => setMode('batch')}
+            >
+              Batch
+            </button>
+          </div>
+
+          {/* Hidden file input (single mode only) */}
+          {mode === 'single' && (
           <input
             ref={fileInputRef}
             type="file"
@@ -526,11 +550,8 @@ const App: React.FC = () => {
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
-          <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
-            <FileVideo size={16} />
-            {selectedFile ? selectedFile.name.slice(0, 30) + (selectedFile.name.length > 30 ? '…' : '') : 'Select Video'}
-          </button>
-
+          )}
+          {/* Preset selector — visible in both modes */}
           <select
             className="select"
             value={selectedPreset}
@@ -574,29 +595,48 @@ const App: React.FC = () => {
             </button>
           )}
 
-          <button
-            className="btn btn-primary"
-            onClick={handleScan}
-            disabled={!selectedFile || scanning}
-          >
-            {scanning ? (
-              <><Loader2 size={16} className="animate-spin" /> Scanning...</>
-            ) : (
-              <><ScanLine size={16} /> Scan File</>
-            )}
-          </button>
+          {/* Single mode: file picker + scan button */}
+          {mode === 'single' && (
+            <>
+              <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
+                <FileVideo size={16} />
+                {selectedFile ? selectedFile.name.slice(0, 30) + (selectedFile.name.length > 30 ? '…' : '') : 'Select Video'}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleScan}
+                disabled={!selectedFile || scanning}
+              >
+                {scanning ? (
+                  <><Loader2 size={16} className="animate-spin" /> Scanning...</>
+                ) : (
+                  <><ScanLine size={16} /> Scan File</>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       <main className="app-main">
-        {error && (
+        {/* Batch mode */}
+        {mode === 'batch' && (
+          <BatchView
+            batch={batch}
+            selectedPreset={selectedPreset}
+            allPresets={allPresets}
+          />
+        )}
+
+        {/* Single mode */}
+        {mode === 'single' && error && (
           <div className="alert alert-error" style={{ marginBottom: '16px' }}>
             <AlertCircle size={16} />
             <span>{error}</span>
           </div>
         )}
 
-        {!selectedFile && (
+        {mode === 'single' && !selectedFile && (
           <div
             className={`dropzone${isDragOver ? ' drag-over' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -613,19 +653,8 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Full-screen loader: only before metadata is ready */}
-        {scanning && !scanResult && (
-          <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-            <Loader2 size={48} className="animate-spin" style={{ marginBottom: '16px' }} />
-            <p>{scanStatus || 'Analyzing video...'}</p>
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${scanProgress}%` }} />
-            </div>
-          </div>
-        )}
-
-        {/* Slim progress bar when metadata ready but still loading more */}
-        {scanning && scanResult && (
+        {/* Slim progress bar while scanning */}
+        {mode === 'single' && scanning && (
           <div style={{ maxWidth: '1600px', margin: '0 auto 8px', padding: '0 4px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -640,57 +669,63 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {scanResult && (
+        {mode === 'single' && videoSrc && (
           <div className="results-container">
             {/* Left column */}
             <div className="results-column">
-              <ReportHeader
-                file={scanResult.file}
-                video={scanResult.video}
-                result={validationResult || 'COMPLIANT'}
-              />
+              {scanResult && (
+                <ReportHeader
+                  file={scanResult.file}
+                  video={scanResult.video}
+                  result={validationResult || 'COMPLIANT'}
+                />
+              )}
 
               <VideoPlayer
                 ref={videoPlayerRef}
-                videoSrc={videoSrc || ''}
-                videoCodec={scanResult.video.codec}
+                videoSrc={videoSrc}
+                videoCodec={scanResult?.video.codec ?? ''}
                 isTranscoding={isTranscoding}
                 transcodeProgress={transcodeProgress}
                 transcodeError={transcodeError}
-                videoWidth={scanResult.video.width}
-                videoHeight={scanResult.video.height}
-                frameRate={scanResult.video.frameRate}
+                videoWidth={scanResult?.video.width ?? 0}
+                videoHeight={scanResult?.video.height ?? 0}
+                frameRate={scanResult?.video.frameRate ?? 0}
                 subtitles={transcription?.segments}
                 onSnapshot={handleSnapshot}
                 onTimeUpdate={setVideoCurrentTime}
                 onVideoReady={setVideoEl}
               />
 
-              {waveformData.length > 0 && (
-                <Waveform
-                  audioData={waveformData}
-                  duration={scanResult.file.duration}
-                  currentTime={videoCurrentTime}
-                  videoEl={videoEl}
-                  truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
-                />
-              )}
+              {scanResult && (
+                <>
+                  {waveformData.length > 0 && (
+                    <Waveform
+                      audioData={waveformData}
+                      duration={scanResult.file.duration}
+                      currentTime={videoCurrentTime}
+                      videoEl={videoEl}
+                      truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
+                    />
+                  )}
 
-              <TranscriptionPanel
-                result={transcription}
-                onTranscriptionDone={setTranscription}
-                onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
-                videoFile={selectedFile}
-                transcodedVideoSrc={transcodedVideoSrc ?? undefined}
-              />
+                  <TranscriptionPanel
+                    result={transcription}
+                    onTranscriptionDone={setTranscription}
+                    onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
+                    videoFile={selectedFile}
+                    transcodedVideoSrc={transcodedVideoSrc ?? undefined}
+                  />
 
-              {thumbnails.length > 0 && (
-                <ThumbnailGrid thumbnails={thumbnails} />
+                  {thumbnails.length > 0 && (
+                    <ThumbnailGrid thumbnails={thumbnails} />
+                  )}
+                </>
               )}
             </div>
 
             {/* Right column */}
-            <div className="results-column">
+            {scanResult && <div className="results-column">
               <CheckResults
                 checks={checks}
                 noPreset={!selectedPreset}
@@ -761,7 +796,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         )}
       </main>

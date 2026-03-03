@@ -26,6 +26,7 @@ interface VideoPlayerProps {
   videoHeight: number;
   frameRate: number;
   subtitles?: TranscriptionSegment[];
+  compact?: boolean;       // Reduces video max-height so overlay controls stay in view
   onSnapshot?: (time: number) => void;
   onTimeUpdate?: (time: number) => void;
   onVideoReady?: (el: HTMLVideoElement) => void;
@@ -46,6 +47,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   videoHeight,
   frameRate,
   subtitles,
+  compact = false,
   onSnapshot,
   onTimeUpdate,
   onVideoReady,
@@ -61,6 +63,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   const [showGrid, setShowGrid] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
   const [zoom, setZoom] = useState(1);
+  // Native dimensions from the <video> element — available before scan result arrives
+  const [nativeWidth, setNativeWidth] = useState(0);
+  const [nativeHeight, setNativeHeight] = useState(0);
 
   useImperativeHandle(ref, () => ({
     seekTo(ms: number) {
@@ -86,6 +91,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
+      setNativeWidth(video.videoWidth);
+      setNativeHeight(video.videoHeight);
       onVideoReady?.(video);
     };
 
@@ -117,7 +124,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
     const overlay = overlayPresets.find(o => o.id === selectedOverlay);
     if (!overlay) return;
 
-    const videoAspect = videoWidth / videoHeight;
+    const w = videoWidth || nativeWidth;
+    const h = videoHeight || nativeHeight;
+    if (!w || !h) return;
+    const videoAspect = w / h;
     const containerAspect = rect.width / rect.height;
 
     let drawWidth = rect.width;
@@ -210,7 +220,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
     }
 
     ctx.restore();
-  }, [selectedOverlay, showSafeAreas, showGrid, zoom, videoWidth, videoHeight]);
+  }, [selectedOverlay, showSafeAreas, showGrid, zoom, videoWidth, videoHeight, nativeWidth, nativeHeight]);
 
   function drawGrid(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -315,8 +325,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
           position: 'relative',
           background: '#000',
           width: '100%',
-          maxHeight: '480px',
-          aspectRatio: `${videoWidth}/${videoHeight}`,
+          maxHeight: compact ? '300px' : '480px',
+          aspectRatio: (videoWidth || nativeWidth) && (videoHeight || nativeHeight)
+            ? `${videoWidth || nativeWidth}/${videoHeight || nativeHeight}`
+            : '16/9',
           overflow: 'hidden',
         }}
       >

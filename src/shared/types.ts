@@ -221,6 +221,26 @@ export interface FFprobeOutput {
   };
 }
 
+// ── Batch Mode ───────────────────────────────────────────────────────────────
+
+export type BatchItemStatus = 'pending' | 'scanning' | 'done' | 'error';
+
+export interface BatchItem {
+  id: string;
+  file: File;
+  status: BatchItemStatus;
+  progress: number;
+  statusLabel: string;
+  previewThumb: string | null;
+  scanResult: ScanResult | null;
+  checks: ValidationCheck[];
+  validationResult: 'COMPLIANT' | 'NON-COMPLIANT' | 'WARNINGS' | null;
+  thumbnails: string[];
+  waveformData: number[];
+  videoSrc: string | null;
+  error: string | null;
+}
+
 export interface AudioLoudness {
   input_i: number;
   input_tp: number;
