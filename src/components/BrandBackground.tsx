@@ -40,13 +40,6 @@ const Eyes = () => (
   </svg>
 );
 
-const Eye = () => (
-  <svg overflow="visible" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1598.08 960.88">
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M799.04,954.65c390.34,0,716.14-203.45,792.57-474.21C1515.18,209.68,1189.38,6.22,799.04,6.22S82.9,209.68,6.47,480.44c76.43,270.76,402.23,474.21,792.57,474.21Z"/>
-    <circle fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" cx="799.04" cy="480.44" r="348.32"/>
-    <circle fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" cx="799.04" cy="480.44" r="153.52"/>
-  </svg>
-);
 
 const Magic = () => (
   <svg overflow="visible" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1341.29 1341.29">
@@ -102,16 +95,6 @@ const Robot = () => (
   </svg>
 );
 
-const RockOn = () => (
-  <svg overflow="visible" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1390.35 1353.74">
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M1014.29,517.74v714.29c0,63.78-51.7,115.49-115.49,115.49H121.71c-63.78,0-115.49-51.7-115.49-115.49v-714.29"/>
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M6.22,601.48V132.23c0-69.59,56.42-126.01,126.01-126.01h0c69.59,0,126.01,56.42,126.01,126.01v469.25"/>
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M762.27,601.48V132.23c0-69.59,56.42-126.01,126.01-126.01h0c69.59,0,126.01,56.42,126.01,126.01v469.25"/>
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M212.63,579.01h469.25v252.02H212.63c-69.55,0-126.01-56.46-126.01-126.01h0c0-69.55,56.46-126.01,126.01-126.01Z" transform="translate(-320.77 1089.27) rotate(-90)"/>
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M464.65,579.01h469.25v252.02h-469.25c-69.55,0-126.01-56.46-126.01-126.01h0c0-69.55,56.46-126.01,126.01-126.01Z" transform="translate(-68.75 1341.28) rotate(-90)"/>
-    <path fill="none" stroke="currentColor" strokeMiterlimit="10" strokeWidth="1" vectorEffect="non-scaling-stroke" d="M1014.29,746.7l154.72-154.72c49.21-49.21,128.99-49.21,178.2,0h0c49.21,49.21,49.21,128.99,0,178.2l-331.81,331.81-1.12-355.29Z"/>
-  </svg>
-);
 
 export const BrandBackground: React.FC = () => (
   <div
