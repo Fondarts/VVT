@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { TranscriptionResult } from '../shared/types';
 import { exportSRT } from '../api/ffmpeg';
-import { transcribeFile, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
+import { transcribeFile, checkModelCached, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
 import type { WhisperModel } from '../api/whisper';
 
 interface Props {
@@ -71,6 +71,7 @@ export const TranscriptionPanel: React.FC<Props> = ({
   const [selectedModel, setSelectedModel]     = useState<WhisperModel>('Xenova/whisper-base');
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const [cachedModels, setCachedModels] = useState<Partial<Record<WhisperModel, boolean>>>({});
 
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const tcEditRef   = useRef<HTMLInputElement>(null);
@@ -85,6 +86,17 @@ export const TranscriptionPanel: React.FC<Props> = ({
 
   useEffect(() => { if (editingTextIdx !== null) textEditRef.current?.focus(); }, [editingTextIdx]);
   useEffect(() => { if (editingTcIdx !== null) { tcEditRef.current?.focus(); tcEditRef.current?.select(); } }, [editingTcIdx]);
+
+  // Check which models are already cached in browser Cache Storage
+  useEffect(() => {
+    Promise.all(
+      WHISPER_MODELS.map(m => checkModelCached(m.id).then(cached => ({ id: m.id, cached })))
+    ).then(results => {
+      const map: Partial<Record<WhisperModel, boolean>> = {};
+      results.forEach(r => { map[r.id] = r.cached; });
+      setCachedModels(map);
+    });
+  }, []);
 
   // ── Transcription ───────────────────────────────────────────────
   const handleTranscribe = async () => {
@@ -117,6 +129,8 @@ export const TranscriptionPanel: React.FC<Props> = ({
       });
       setInternalResult(res);
       onTranscriptionDone?.(res);
+      // Mark this model as cached now that it's been downloaded
+      setCachedModels(prev => ({ ...prev, [selectedModel]: true }));
     } catch (err) {
       setTranscribeError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -239,7 +253,9 @@ export const TranscriptionPanel: React.FC<Props> = ({
                     style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-text-primary)', fontSize: '0.78rem', padding: '4px 6px' }}
                   >
                     {WHISPER_MODELS.map(m => (
-                      <option key={m.id} value={m.id}>{m.label} ({m.size})</option>
+                      <option key={m.id} value={m.id}>
+                        {m.label} ({m.size}){cachedModels[m.id] === true ? ' ✓' : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -270,9 +286,14 @@ export const TranscriptionPanel: React.FC<Props> = ({
                 }
               </button>
 
-              {transcribing && transcribeProgress > 0 && transcribeProgress < 100 && (
-                <div style={{ height: '3px', background: 'var(--color-bg-tertiary)', borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${transcribeProgress}%`, background: 'var(--color-accent)', transition: 'width 0.3s ease' }} />
+              {transcribing && transcribeStatus.includes('Downloading') && (
+                <div>
+                  <div style={{ height: '3px', background: 'var(--color-bg-tertiary)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${transcribeProgress}%`, background: 'var(--color-accent)', transition: 'width 0.3s ease' }} />
+                  </div>
+                  <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
+                    Downloading model… {transcribeProgress}%
+                  </p>
                 </div>
               )}
 
@@ -285,7 +306,10 @@ export const TranscriptionPanel: React.FC<Props> = ({
 
               {!transcribing && !transcribeError && (
                 <p style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                  First run downloads {WHISPER_MODELS.find(m => m.id === selectedModel)?.size} — cached for future sessions.
+                  {cachedModels[selectedModel]
+                    ? '✓ Model cached — ready to transcribe.'
+                    : `First run downloads ${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} — cached for future sessions.`
+                  }
                 </p>
               )}
             </>

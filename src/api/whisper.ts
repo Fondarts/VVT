@@ -101,6 +101,26 @@ export function preloadWhisperWorker(): void {
   getWorker();
 }
 
+/**
+ * Check if a Whisper model is already cached in browser Cache Storage.
+ * @xenova/transformers caches model files at their huggingface.co CDN URLs.
+ */
+export async function checkModelCached(model: WhisperModel): Promise<boolean> {
+  if (!('caches' in window)) return false;
+  try {
+    const modelShortName = model.split('/')[1]; // e.g. 'whisper-tiny'
+    const cacheNames = await caches.keys();
+    for (const name of cacheNames) {
+      const cache = await caches.open(name);
+      const keys = await cache.keys();
+      if (keys.some(req => req.url.includes(modelShortName))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /** Extract mono 16kHz Float32Array from any browser-decodable audio/video file. */
 async function extractAudio16k(file: File): Promise<Float32Array> {
   const arrayBuffer = await file.arrayBuffer();
