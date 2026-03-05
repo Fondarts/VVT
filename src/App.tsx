@@ -31,6 +31,7 @@ import {
 import { preloadWhisperWorker } from './api/whisper';
 import { useBatch } from './hooks/useBatch';
 import { BatchView } from './components/batch/BatchView';
+import { BrandBackground } from './components/BrandBackground';
 import { VideoPlayer } from './components/VideoPlayer';
 import type { VideoPlayerHandle } from './components/VideoPlayer';
 import { CheckResults } from './components/CheckResults';
@@ -518,9 +519,11 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
+      <BrandBackground />
       <header className="app-header">
         <div className="logo">
-          <span style={{ color: '#ef4444' }}>Kissd</span><span style={{ color: 'var(--color-text-primary)' }}> Video Validation Tool V2</span>
+          <img src="/icons/kissd-logo.svg" alt="KISSD" style={{ height: '22px', width: 'auto', display: 'block' }} />
+          <span style={{ color: 'var(--color-text-primary)' }}>Video Validation Tool V2</span>
         </div>
         <div className="header-actions">
           {/* Mode toggle */}
@@ -1000,7 +1003,7 @@ const RuleRow: React.FC<{ def: RuleDef; state: RuleState; onChange: (s: RuleStat
         checked={enabled}
         onChange={e => onChange({ ...state, condition: e.target.checked ? def.dc : 'ignore' })}
         onClick={e => e.stopPropagation()}
-        style={{ cursor: 'pointer', flexShrink: 0, accentColor: '#3b82f6', width: '14px', height: '14px' }}
+        style={{ cursor: 'pointer', flexShrink: 0, accentColor: '#E1FF1C', width: '14px', height: '14px' }}
       />
       <span style={{ width: '196px', flexShrink: 0, fontSize: '0.8125rem', color: enabled ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
         {def.label}

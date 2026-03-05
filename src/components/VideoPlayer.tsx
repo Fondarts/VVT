@@ -180,7 +180,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       img.src = `/safezones/${overlay.imagePath}`;
     } else {
       // Programmatic safe zone guide
-      ctx.strokeStyle = '#3b82f6';
+      ctx.strokeStyle = '#E1FF1C';
       ctx.lineWidth = 2;
       ctx.setLineDash([]);
       ctx.strokeRect(overlayX, overlayY, overlayW, overlayH);
@@ -421,7 +421,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
             if (videoRef.current) videoRef.current.currentTime = t;
             setCurrentTime(t);
           }}
-          style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6', height: '4px' }}
+          style={{ width: '100%', cursor: 'pointer', accentColor: '#E1FF1C', height: '4px' }}
         />
       </div>
 

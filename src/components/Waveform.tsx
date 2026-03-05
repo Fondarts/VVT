@@ -114,7 +114,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
       }
 
       // Draw background
-      ctx2d.fillStyle = '#0a0a0a';
+      ctx2d.fillStyle = '#191919';
       ctx2d.fillRect(0, 0, W, H);
 
       const minDb = -60;
@@ -205,7 +205,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
     const cy = H / 2;
 
     // Background
-    ctx.fillStyle = '#0a0a0a';
+    ctx.fillStyle = '#191919';
     ctx.fillRect(0, 0, W, H);
 
     // Grid lines
@@ -248,7 +248,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
       if (i === 0) ctx.moveTo(0, cy - amp);
       else ctx.lineTo(i * barW, cy - amp);
     }
-    ctx.strokeStyle = '#3b82f6';
+    ctx.strokeStyle = '#E1FF1C';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -363,7 +363,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
               step={0.5}
               value={vScale}
               onChange={e => setVScale(parseFloat(e.target.value))}
-              style={{ width: '80px', cursor: 'pointer', accentColor: '#3b82f6' }}
+              style={{ width: '80px', cursor: 'pointer', accentColor: '#E1FF1C' }}
               title="Vertical scale"
             />
           </div>
@@ -380,7 +380,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
               style={{
                 width: '100%',
                 height: `${WAVEFORM_HEIGHT}px`,
-                background: '#0a0a0a',
+                background: '#191919',
                 borderRadius: '4px',
                 display: 'block',
               }}
@@ -407,7 +407,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
               style={{
                 width: `${VU_WIDTH}px`,
                 height: `${WAVEFORM_HEIGHT}px`,
-                background: '#0a0a0a',
+                background: '#191919',
                 borderRadius: '4px',
                 display: 'block',
               }}

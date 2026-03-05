@@ -1,29 +1,43 @@
-/* CSS Variables */
+/* KISSD Brand Variables */
 :root {
-  --color-bg-primary: #0a0a0a;
-  --color-bg-secondary: #141414;
-  --color-bg-tertiary: #1a1a1a;
-  --color-bg-card: #1e1e1e;
+  /* KISSD Brand Colors */
+  --kissd-black:     #191919;
+  --kissd-red:       #FA4900;
+  --kissd-magenta:   #FB6DFD;
+  --kissd-lime:      #E1FF1C;
+  --kissd-off-white: #F7F4EB;
+  --kissd-grey:      #B5ADA8;
 
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #a0a0a0;
-  --color-text-muted: #666666;
+  /* Background */
+  --color-bg-primary:   #191919;  /* kissd-black */
+  --color-bg-secondary: #1e1e1e;  /* slightly lifted */
+  --color-bg-tertiary:  #252525;  /* cards / inputs */
+  --color-bg-card:      #2a2a2a;  /* raised surface */
 
-  --color-accent: #3b82f6;
-  --color-accent-hover: #2563eb;
+  /* Text */
+  --color-text-primary:   #F7F4EB;  /* kissd-off-white */
+  --color-text-secondary: #B5ADA8;  /* kissd-grey */
+  --color-text-muted:     rgba(181,173,168,0.6);
+
+  /* Accent = KISSD Lime (CTAs, focus, progress) */
+  --color-accent:       #E1FF1C;
+  --color-accent-hover: #cbea00;
+
+  /* Semantic colors */
   --color-success: #22c55e;
   --color-warning: #f59e0b;
-  --color-error: #ef4444;
+  --color-error:   #FA4900;  /* kissd-red */
 
-  --border-color: #2a2a2a;
-  --border-radius: 8px;
+  /* Structure */
+  --border-color:  #3a3a3a;
+  --border-radius: 6px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
   --spacing-xl: 32px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  --font-sans: "Helvetica Neue", "HelveticaNeue", Helvetica, Arial, sans-serif;
   --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
 }
 
@@ -39,6 +53,9 @@ body {
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1, "liga" 1;
 }
 
 /* App layout */
@@ -47,6 +64,15 @@ body {
   flex-direction: column;
   height: 100vh;
   background: var(--color-bg-primary);
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure header and main content sit above the fixed background layer */
+.app-header,
+.app-main {
+  position: relative;
+  z-index: 1;
 }
 
 .app-header {
@@ -111,11 +137,13 @@ body {
 
 .btn-primary {
   background: var(--color-accent);
-  color: white;
+  color: #191919;
+  font-weight: 600;
 }
 
 .btn-primary:hover {
   background: var(--color-accent-hover);
+  color: #191919;
 }
 
 .btn-secondary {
@@ -391,13 +419,25 @@ input[type="checkbox"] {
 
 .dropzone:hover, .dropzone.drag-over {
   border-color: var(--color-accent);
-  background: rgba(59, 130, 246, 0.05);
+  background: rgba(225, 255, 28, 0.05);
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(225, 255, 28, 0.25);
+  color: var(--color-text-primary);
+}
+
+/* Focus */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -405,12 +445,12 @@ input[type="checkbox"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-bg-tertiary);
-  border-radius: 4px;
+  background: #3a3a3a;
+  border-radius: var(--border-radius);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #444;
+  background: var(--kissd-grey);
 }
 
 /* Animations */
