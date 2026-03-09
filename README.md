@@ -1,4 +1,4 @@
-# AdValify — Video Validation Tool
+# Kissd Video Validation Tool
 
 A browser-based technical validation tool for video files. Runs 100% client-side via WebAssembly — no backend, no installation, no uploads.
 
