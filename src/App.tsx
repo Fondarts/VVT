@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   FileVideo,
+  Image as ImageIcon,
   AlertCircle,
   FileText,
   ScanLine,
@@ -11,6 +12,7 @@ import {
   Pencil,
   Trash2,
   RotateCcw,
+  Clapperboard,
 } from 'lucide-react';
 import type {
   ScanResult,
@@ -19,6 +21,7 @@ import type {
   ValidationReport,
   ContrastCheck,
   ResolutionPreset,
+  AnnotationStroke,
 } from './shared/types';
 import { validationPresets } from './shared/presets';
 import { generatePDF, generateJSON, preloadPdf } from './utils/pdfGenerator';
@@ -34,12 +37,15 @@ import { BatchView } from './components/batch/BatchView';
 import { BrandBackground } from './components/BrandBackground';
 import { VideoPlayer } from './components/VideoPlayer';
 import type { VideoPlayerHandle } from './components/VideoPlayer';
+import { ImageViewer } from './components/ImageViewer';
+import { scanImageFile } from './utils/imageScanner';
 import { CheckResults } from './components/CheckResults';
 import { ContrastChecker } from './components/ContrastChecker';
-import { ReportHeader } from './components/ReportHeader';
 import { ThumbnailGrid } from './components/ThumbnailGrid';
 import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
+import { FeedbackPanel } from './components/FeedbackPanel';
+import { fileKey, getComments, updateCommentTimecode } from './utils/feedbackStorage';
 import type { TranscriptionResult } from './shared/types';
 
 // ── Rule-based custom preset form ───────────────────────────────────
@@ -92,6 +98,7 @@ const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
 const App: React.FC = () => {
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isImage, setIsImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -145,6 +152,13 @@ const App: React.FC = () => {
   const [contrastChecks, setContrastChecks] = useState<ContrastCheck[]>([]);
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [activeRightTab, setActiveRightTab] = useState<'specs' | 'feedback' | 'tools'>('feedback');
+  const [feedbackCount, setFeedbackCount] = useState(0);
+  const [feedbackMarkers, setFeedbackMarkers] = useState<{ time: number; id: string; author: string }[]>([]);
+  const [feedbackMarkerRanges, setFeedbackMarkerRanges] = useState<{ start: number; end: number; id: string; author: string }[]>([]);
+  const [feedbackRefreshKey, setFeedbackRefreshKey] = useState(0);
+  const [stagedMarker, setStagedMarker] = useState<{ start: number; end: number; strokes?: AnnotationStroke[] } | null>(null);
+  const [annotationOverlay, setAnnotationOverlay] = useState<AnnotationStroke[] | null>(null);
   const [isTranscoding, setIsTranscoding] = useState(false);
   const [transcodeProgress, setTranscodeProgress] = useState(0);
   const [transcodeError, setTranscodeError] = useState<string | null>(null);
@@ -174,6 +188,8 @@ const App: React.FC = () => {
     thumbnails.forEach(t => { if (t.startsWith('blob:')) URL.revokeObjectURL(t); });
     if (transcodedVideoSrc) URL.revokeObjectURL(transcodedVideoSrc);
 
+    const fileIsImage = file.type.startsWith('image/');
+    setIsImage(fileIsImage);
     setSelectedFile(file);
     setVideoSrc(URL.createObjectURL(file));
     setScanResult(null);
@@ -184,11 +200,21 @@ const App: React.FC = () => {
     setTranscription(undefined);
     setError(null);
     setVideoEl(null);
+    setActiveRightTab('feedback');
+    setFeedbackCount(0);
+    setFeedbackMarkers([]);
+    setAnnotationOverlay(null);
     setIsTranscoding(false);
     setTranscodeProgress(0);
     setTranscodeError(null);
     setTranscodedVideoSrc(null);
     snapshotCounterRef.current = 0;
+
+    if (fileIsImage) {
+      handleImageScan(file);
+    } else {
+      handleScan(file);
+    }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -209,7 +235,7 @@ const App: React.FC = () => {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('video/')) {
+    if (file && (file.type.startsWith('video/') || file.type.startsWith('image/'))) {
       handleFileSelected(file);
     }
   }, [videoSrc, thumbnails]);
@@ -232,8 +258,22 @@ const App: React.FC = () => {
     setValidationResult(result);
   }, [scanResult, selectedPreset, customPresets, contrastChecks]);
 
-  const handleScan = async () => {
-    if (!selectedFile) return;
+  const handleImageScan = async (file: File) => {
+    setScanning(true);
+    setError(null);
+    try {
+      const result = await scanImageFile(file);
+      setScanResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read image');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleScan = async (fileOverride?: File) => {
+    const file = fileOverride ?? selectedFile;
+    if (!file) return;
 
     setScanning(true);
     setScanProgress(0);
@@ -250,13 +290,13 @@ const App: React.FC = () => {
     setTranscodedVideoSrc(null);
 
     try {
-      await runScan(selectedFile, {
+      await runScan(file, {
         thumbnailCount: 10,
         onProgress: (pct, label) => { setScanProgress(pct); setScanStatus(label); },
         onScanReady: (scan) => {
           setScanResult(scan);
           // Pre-arm transcode spinner so it shows immediately in VideoPlayer
-          if (needsTranscodeCodec(scan.video.codec)) {
+          if (scan.video && needsTranscodeCodec(scan.video.codec)) {
             setIsTranscoding(true);
             setTranscodeProgress(0);
           }
@@ -328,6 +368,44 @@ const App: React.FC = () => {
   const handleContrastCheck = (newChecks: ContrastCheck[]) => {
     setContrastChecks(newChecks);
   };
+
+  const handlePlaceMarker = useCallback((start: number, end: number, strokes: AnnotationStroke[]) => {
+    videoPlayerRef.current?.seekTo(start * 1000);
+    setStagedMarker({ start, end, strokes: strokes.length > 0 ? strokes : undefined });
+    setActiveRightTab('feedback');
+  }, []);
+
+  const handleImagePlaceMarker = useCallback((strokes: AnnotationStroke[]) => {
+    setStagedMarker({ start: 0, end: 0, strokes: strokes.length > 0 ? strokes : undefined });
+    setActiveRightTab('feedback');
+  }, []);
+
+  const handleMarkerMove = useCallback((id: string, newTime: number) => {
+    if (!selectedFile) return;
+    const key = fileKey(selectedFile.name, selectedFile.size);
+    const comment = getComments(key).find(c => c.id === id);
+    if (!comment) return;
+    updateCommentTimecode(key, id, newTime, comment.timecodeEnd);
+    setFeedbackMarkers(prev => prev.map(m => m.id === id ? { ...m, time: newTime } : m));
+    setFeedbackRefreshKey(k => k + 1);
+  }, [selectedFile]);
+
+  const handleMarkerRangeMove = useCallback((id: string, newStart: number, newEnd: number) => {
+    if (!selectedFile) return;
+    const key = fileKey(selectedFile.name, selectedFile.size);
+    updateCommentTimecode(key, id, newStart, newEnd);
+    setFeedbackMarkerRanges(prev => prev.map(r => r.id === id ? { ...r, start: newStart, end: newEnd } : r));
+    setFeedbackRefreshKey(k => k + 1);
+  }, [selectedFile]);
+
+  const handleMarkerSetRange = useCallback((id: string, end: number) => {
+    if (!selectedFile) return;
+    const key = fileKey(selectedFile.name, selectedFile.size);
+    const comment = getComments(key).find(c => c.id === id);
+    if (!comment) return;
+    updateCommentTimecode(key, id, comment.timecode, end);
+    setFeedbackRefreshKey(k => k + 1);
+  }, [selectedFile]);
 
   const handleSnapshot = useCallback(async (_time: number) => {
     const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
@@ -523,7 +601,7 @@ const App: React.FC = () => {
       <header className="app-header">
         <div className="logo">
           <img src="/icons/kissd-logo.svg" alt="KISSD" style={{ height: '22px', width: 'auto', display: 'block' }} />
-          <span style={{ color: 'var(--color-text-primary)' }}>Video Validation Tool V2</span>
+          <span style={{ color: 'var(--color-text-primary)' }}>Review V03</span>
         </div>
         <div className="header-actions">
           {/* Mode toggle */}
@@ -549,7 +627,7 @@ const App: React.FC = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.mxf,.m2ts,.ts"
+            accept="video/*,image/*,.mp4,.mov,.mkv,.webm,.avi,.mxf,.m2ts,.ts,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.avif"
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
@@ -602,20 +680,27 @@ const App: React.FC = () => {
           {mode === 'single' && (
             <>
               <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
-                <FileVideo size={16} />
-                {selectedFile ? selectedFile.name.slice(0, 30) + (selectedFile.name.length > 30 ? '…' : '') : 'Select Video'}
+                {isImage ? <ImageIcon size={16} /> : <FileVideo size={16} />}
+                {selectedFile ? selectedFile.name.slice(0, 30) + (selectedFile.name.length > 30 ? '…' : '') : 'Select File'}
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleScan}
-                disabled={!selectedFile || scanning}
-              >
-                {scanning ? (
-                  <><Loader2 size={16} className="animate-spin" /> Scanning...</>
-                ) : (
-                  <><ScanLine size={16} /> Scan File</>
-                )}
-              </button>
+              {!isImage && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleScan()}
+                  disabled={!selectedFile || scanning}
+                >
+                  {scanning ? (
+                    <><Loader2 size={16} className="animate-spin" /> Scanning...</>
+                  ) : (
+                    <><ScanLine size={16} /> Scan File</>
+                  )}
+                </button>
+              )}
+              {isImage && scanning && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Loader2 size={14} className="animate-spin" /> Reading image…
+                </span>
+              )}
             </>
           )}
         </div>
@@ -647,159 +732,305 @@ const App: React.FC = () => {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <FileVideo size={48} />
-            <h3>Select a video file</h3>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <FileVideo size={48} />
+              <ImageIcon size={48} />
+            </div>
+            <h3>Select a video or image file</h3>
             <p>Click here or drag and drop</p>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              Supports: MP4, MOV, MKV, WEBM, AVI, MXF — processed locally, never uploaded
+              Video: MP4, MOV, MKV, WEBM, AVI, MXF · Image: JPG, PNG, WebP, GIF — processed locally, never uploaded
             </p>
           </div>
         )}
 
-        {/* Slim progress bar while scanning */}
-        {mode === 'single' && scanning && (
-          <div style={{ maxWidth: '1600px', margin: '0 auto 8px', padding: '0 4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Loader2 size={12} className="animate-spin" />
-                {scanStatus}
-              </span>
-              <span>{scanProgress}%</span>
-            </div>
-            <div style={{ width: '100%', height: '2px', background: 'var(--color-bg-tertiary)', borderRadius: '1px' }}>
-              <div style={{ width: `${scanProgress}%`, height: '100%', background: 'var(--color-accent)', borderRadius: '1px', transition: 'width 0.3s' }} />
-            </div>
-          </div>
-        )}
 
         {mode === 'single' && videoSrc && (
           <div className="results-container">
             {/* Left column */}
-            <div className="results-column">
-              {scanResult && (
-                <ReportHeader
-                  file={scanResult.file}
-                  video={scanResult.video}
-                  result={validationResult || 'COMPLIANT'}
+            <div className="results-column" style={{ position: 'sticky', top: 0, height: 'calc(100vh - 130px)', overflow: 'hidden' }}>
+              {isImage ? (
+                <ImageViewer
+                  src={videoSrc}
+                  width={scanResult?.image?.width ?? 0}
+                  height={scanResult?.image?.height ?? 0}
+                  annotationOverlay={annotationOverlay}
+                  onAnnotationDismiss={() => setAnnotationOverlay(null)}
+                  onPlaceMarker={handleImagePlaceMarker}
+                />
+              ) : (
+                <VideoPlayer
+                  ref={videoPlayerRef}
+                  videoSrc={videoSrc}
+                  videoCodec={scanResult?.video?.codec ?? ''}
+                  isTranscoding={isTranscoding}
+                  transcodeProgress={transcodeProgress}
+                  transcodeError={transcodeError}
+                  videoWidth={scanResult?.video?.width ?? 0}
+                  videoHeight={scanResult?.video?.height ?? 0}
+                  frameRate={scanResult?.video?.frameRate ?? 0}
+                  subtitles={transcription?.segments}
+                  markers={feedbackMarkers}
+                  markerRanges={feedbackMarkerRanges}
+                  onMarkerMove={handleMarkerMove}
+                  onMarkerRangeMove={handleMarkerRangeMove}
+                  onPlaceMarker={handlePlaceMarker}
+                  onMarkerSetRange={handleMarkerSetRange}
+                  annotationOverlay={annotationOverlay}
+                  onAnnotationDismiss={() => setAnnotationOverlay(null)}
+                  onSnapshot={handleSnapshot}
+                  onTimeUpdate={setVideoCurrentTime}
+                  onVideoReady={setVideoEl}
                 />
               )}
 
-              <VideoPlayer
-                ref={videoPlayerRef}
-                videoSrc={videoSrc}
-                videoCodec={scanResult?.video.codec ?? ''}
-                isTranscoding={isTranscoding}
-                transcodeProgress={transcodeProgress}
-                transcodeError={transcodeError}
-                videoWidth={scanResult?.video.width ?? 0}
-                videoHeight={scanResult?.video.height ?? 0}
-                frameRate={scanResult?.video.frameRate ?? 0}
-                subtitles={transcription?.segments}
-                onSnapshot={handleSnapshot}
-                onTimeUpdate={setVideoCurrentTime}
-                onVideoReady={setVideoEl}
-              />
+              {!isImage && scanResult && waveformData.length > 0 && (
+                <Waveform
+                  audioData={waveformData}
+                  duration={scanResult.file.duration}
+                  currentTime={videoCurrentTime}
+                  videoEl={videoEl}
+                  truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
+                />
+              )}
+            </div>
 
-              {scanResult && (
+            {/* Right column — always visible once a video is loaded */}
+            <div className="results-column" style={{ height: 'calc(100vh - 130px)', overflowY: 'auto', position: 'sticky', top: 0 }}>
+              {/* Tab nav */}
+              <div className="tab-nav" style={{ flexShrink: 0, position: 'sticky', top: 0, zIndex: 10 }}>
+                <button
+                  className={`tab-btn ${activeRightTab === 'feedback' ? 'active' : ''}`}
+                  onClick={() => setActiveRightTab('feedback')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                >
+                  Feedback
+                  {feedbackCount > 0 && (
+                    <span style={{
+                      background: 'var(--color-accent)',
+                      color: '#000',
+                      borderRadius: '10px',
+                      padding: '0 5px',
+                      fontSize: '0.6rem',
+                      fontWeight: 700,
+                      lineHeight: '16px',
+                    }}>
+                      {feedbackCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  className={`tab-btn ${activeRightTab === 'specs' ? 'active' : ''}`}
+                  onClick={() => setActiveRightTab('specs')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                >
+                  Specs
+                  {scanning && <Loader2 size={11} className="animate-spin" />}
+                </button>
+                <button
+                  className={`tab-btn ${activeRightTab === 'tools' ? 'active' : ''}`}
+                  onClick={() => setActiveRightTab('tools')}
+                >
+                  Tools
+                </button>
+              </div>
+
+              {/* ── Specs tab ───────────────────────────────────────── */}
+              {activeRightTab === 'specs' && (
                 <>
-                  {waveformData.length > 0 && (
-                    <Waveform
-                      audioData={waveformData}
-                      duration={scanResult.file.duration}
-                      currentTime={videoCurrentTime}
-                      videoEl={videoEl}
-                      truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
-                    />
+                  {/* Slim progress bar while scanning */}
+                  {scanning && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Loader2 size={12} className="animate-spin" />
+                          {scanStatus}
+                        </span>
+                        <span>{scanProgress}%</span>
+                      </div>
+                      <div style={{ width: '100%', height: '2px', background: 'var(--color-bg-tertiary)', borderRadius: '1px' }}>
+                        <div style={{ width: `${scanProgress}%`, height: '100%', background: 'var(--color-accent)', borderRadius: '1px', transition: 'width 0.3s' }} />
+                      </div>
+                    </div>
+                  )}
+                  {/* Scanning skeleton */}
+                  {scanning && !scanResult && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {(['Container', 'Video', 'Audio'] as const).map(section => (
+                        <div key={section} className="card" style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', opacity: 0.6 }}>
+                            <Loader2 size={12} className="animate-spin" />
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                              {section}
+                            </span>
+                          </div>
+                          {[70, 50, 85].map((w, i) => (
+                            <div key={i} style={{
+                              height: '12px',
+                              borderRadius: '4px',
+                              background: 'var(--color-bg-tertiary)',
+                              marginBottom: '7px',
+                              width: `${w}%`,
+                              opacity: 0.5,
+                            }} />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
-                  <TranscriptionPanel
-                    result={transcription}
-                    onTranscriptionDone={setTranscription}
-                    onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
-                    videoFile={selectedFile}
-                    transcodedVideoSrc={transcodedVideoSrc ?? undefined}
-                  />
+                  {/* No file scanned yet */}
+                  {!scanning && !scanResult && (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '40px 16px',
+                      color: 'var(--color-text-muted)',
+                      fontSize: '0.8125rem',
+                    }}>
+                      <ScanLine size={28} style={{ margin: '0 auto 10px', display: 'block', opacity: 0.25 }} />
+                      Click "Scan File" to analyze this video
+                    </div>
+                  )}
 
-                  {thumbnails.length > 0 && (
-                    <ThumbnailGrid thumbnails={thumbnails} />
+                  {/* Results */}
+                  {scanResult && (
+                    <>
+                      <CheckResults
+                        checks={checks}
+                        noPreset={!selectedPreset}
+                        scanResult={scanResult}
+                        presetName={allPresets.find(p => p.id === selectedPreset)?.name}
+                      />
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button className="btn btn-primary" onClick={handleExportPDF}>
+                          <Download size={16} />
+                          Export PDF
+                        </button>
+                        <button className="btn btn-secondary" onClick={handleExportJSON}>
+                          <FileText size={16} />
+                          Export JSON
+                        </button>
+                        {thumbnails.length > 0 && (
+                          <button className="btn btn-secondary" onClick={handleSaveThumbnails}>
+                            <Download size={16} />
+                            Save Thumbnails
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Custom & overridden preset management */}
+                      {customPresets.length > 0 && (
+                        <div className="card" style={{ padding: '12px' }}>
+                          <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '8px' }}>
+                            Your presets
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {customPresets.map(p => {
+                              const isBuiltinOverride = validationPresets.some(b => b.id === p.id);
+                              return (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                  <span style={{ fontSize: '0.75rem' }}>
+                                    {p.name}
+                                    {isBuiltinOverride && (
+                                      <span style={{ marginLeft: '6px', fontSize: '0.65rem', opacity: 0.6, fontStyle: 'italic' }}>modified</span>
+                                    )}
+                                  </span>
+                                  <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button
+                                      className="btn btn-icon btn-sm"
+                                      onClick={() => openEditPreset(p.id)}
+                                      title="Edit preset"
+                                    >
+                                      <Pencil size={12} />
+                                    </button>
+                                    <button
+                                      className="btn btn-icon btn-sm"
+                                      onClick={() => deleteCustomPreset(p.id)}
+                                      title={isBuiltinOverride ? 'Reset to default' : 'Delete preset'}
+                                      style={{ color: isBuiltinOverride ? 'var(--color-text-muted)' : 'var(--color-error)' }}
+                                    >
+                                      {isBuiltinOverride ? <RotateCcw size={12} /> : <X size={12} />}
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* ── Feedback tab ─────────────────────────────────────── */}
+              {activeRightTab === 'feedback' && selectedFile && (
+                <FeedbackPanel
+                  fileName={selectedFile.name}
+                  fileSize={selectedFile.size}
+                  currentTime={videoCurrentTime}
+                  frameRate={scanResult?.video?.frameRate ?? 0}
+                  videoEl={videoEl}
+                  onSeek={s => videoPlayerRef.current?.seekTo(s * 1000)}
+                  onCommentsChange={setFeedbackCount}
+                  onMarkersChange={setFeedbackMarkers}
+                  onMarkerRangesChange={setFeedbackMarkerRanges}
+                  onAnnotationChange={setAnnotationOverlay}
+                  onStartDraw={(color, tool) => videoPlayerRef.current?.startDraw(color, tool)}
+                  onCaptureDrawStrokes={() => videoPlayerRef.current?.captureDrawStrokes() ?? []}
+                  onSetLineWidth={w => videoPlayerRef.current?.setLineWidth(w)}
+                  onUndoLastStroke={() => videoPlayerRef.current?.undoLastStroke()}
+                  onInitializeDrawStrokes={s => videoPlayerRef.current?.initializeDrawStrokes(s)}
+                  refreshKey={feedbackRefreshKey}
+                  stagedTimecode={stagedMarker ?? undefined}
+                  onStagedTimecodeConsumed={() => setStagedMarker(null)}
+                />
+              )}
+
+              {/* ── Tools tab ────────────────────────────────────────── */}
+              {activeRightTab === 'tools' && (
+                <>
+                  {scanResult ? (
+                    <>
+                      <ContrastChecker
+                        videoEl={videoEl}
+                        currentTime={videoCurrentTime}
+                        onContrastCheck={handleContrastCheck}
+                      />
+                      <TranscriptionPanel
+                        result={transcription}
+                        onTranscriptionDone={setTranscription}
+                        onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
+                        videoFile={selectedFile}
+                        transcodedVideoSrc={transcodedVideoSrc ?? undefined}
+                      />
+                      {thumbnails.length > 0 && (
+                        <ThumbnailGrid thumbnails={thumbnails} />
+                      )}
+                      <div className="card">
+                        <div className="card-header">
+                          <h3 className="card-title" style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Clapperboard size={14} style={{ color: 'var(--color-accent)' }} />
+                            Slate Creator
+                          </h3>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)', padding: '2px 8px', borderRadius: '4px' }}>Coming soon</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '40px 16px',
+                      color: 'var(--color-text-muted)',
+                      fontSize: '0.8125rem',
+                    }}>
+                      Scan a file to use tools
+                    </div>
                   )}
                 </>
               )}
             </div>
-
-            {/* Right column */}
-            {scanResult && <div className="results-column">
-              <CheckResults
-                checks={checks}
-                noPreset={!selectedPreset}
-                scanResult={scanResult}
-                presetName={allPresets.find(p => p.id === selectedPreset)?.name}
-              />
-
-              <ContrastChecker
-                videoEl={videoEl}
-                currentTime={videoCurrentTime}
-                onContrastCheck={handleContrastCheck}
-              />
-
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" onClick={handleExportPDF}>
-                  <Download size={16} />
-                  Export PDF
-                </button>
-                <button className="btn btn-secondary" onClick={handleExportJSON}>
-                  <FileText size={16} />
-                  Export JSON
-                </button>
-                {thumbnails.length > 0 && (
-                  <button className="btn btn-secondary" onClick={handleSaveThumbnails}>
-                    <Download size={16} />
-                    Save Thumbnails
-                  </button>
-                )}
-              </div>
-
-              {/* Custom & overridden preset management */}
-              {customPresets.length > 0 && (
-                <div className="card" style={{ padding: '12px' }}>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '8px' }}>
-                    Your presets
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {customPresets.map(p => {
-                      const isBuiltinOverride = validationPresets.some(b => b.id === p.id);
-                      return (
-                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                          <span style={{ fontSize: '0.75rem' }}>
-                            {p.name}
-                            {isBuiltinOverride && (
-                              <span style={{ marginLeft: '6px', fontSize: '0.65rem', opacity: 0.6, fontStyle: 'italic' }}>modified</span>
-                            )}
-                          </span>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                              className="btn btn-icon btn-sm"
-                              onClick={() => openEditPreset(p.id)}
-                              title="Edit preset"
-                            >
-                              <Pencil size={12} />
-                            </button>
-                            <button
-                              className="btn btn-icon btn-sm"
-                              onClick={() => deleteCustomPreset(p.id)}
-                              title={isBuiltinOverride ? 'Reset to default' : 'Delete preset'}
-                              style={{ color: isBuiltinOverride ? 'var(--color-text-muted)' : 'var(--color-error)' }}
-                            >
-                              {isBuiltinOverride ? <RotateCcw size={12} /> : <X size={12} />}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>}
           </div>
         )}
       </main>

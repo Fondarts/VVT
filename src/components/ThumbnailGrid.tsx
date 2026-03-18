@@ -6,7 +6,7 @@ interface ThumbnailGridProps {
 }
 
 export const ThumbnailGrid: React.FC<ThumbnailGridProps> = ({ thumbnails }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Trigger browser download via <a download>

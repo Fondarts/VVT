@@ -60,7 +60,7 @@ export const TranscriptionPanel: React.FC<Props> = ({
   const [editingTcIdx, setEditingTcIdx]     = useState<number | null>(null);
   const [tcField, setTcField]       = useState<'from' | 'to'>('from');
   const [tcDraft, setTcDraft]       = useState('');
-  const [collapsed, setCollapsed]   = useState(false);
+  const [collapsed, setCollapsed]   = useState(true);
   const [copied, setCopied]         = useState(false);
   const [srtSaved, setSrtSaved]     = useState(false);
 
@@ -218,25 +218,25 @@ export const TranscriptionPanel: React.FC<Props> = ({
 
   // ── Render ──────────────────────────────────────────────────────
   return (
-    <div className="card" style={{ padding: '16px' }}>
+    <div className="card">
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+      <div className="card-header" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setCollapsed(c => !c)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Mic size={16} style={{ color: 'var(--color-accent)' }} />
-          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Audio Transcription</span>
+          <Mic size={14} style={{ color: 'var(--color-accent)' }} />
+          <h3 className="card-title" style={{ fontSize: '0.85rem' }}>Audio Transcription</h3>
           {result && (
             <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)', padding: '2px 6px', borderRadius: '4px' }}>
               {editedSegments.length} segs
             </span>
           )}
         </div>
-        {result && (
-          <button className="btn btn-icon btn-sm" onClick={() => setCollapsed(c => !c)}>
-            {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-          </button>
-        )}
+        <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}>
+          {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
       </div>
+
+      {!collapsed && <div className="card-content">
 
       {/* Controls — shown when no result yet OR always for re-transcription */}
       {!result && (
@@ -398,6 +398,8 @@ export const TranscriptionPanel: React.FC<Props> = ({
           </p>
         </div>
       )}
+
+      </div>}
     </div>
   );
 };

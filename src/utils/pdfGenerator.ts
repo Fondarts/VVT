@@ -75,7 +75,7 @@ export const generatePDF = async (
   const CW = PW - M * 2;
   let y = 0;
 
-  doc.setProperties({ title: 'Kissd Video Validation Tool' });
+  doc.setProperties({ title: 'Review V03' });
 
   const pb = (needed = 20) => {
     if (y + needed > PH - M) {
@@ -149,7 +149,7 @@ export const generatePDF = async (
   const meta = [
     report.file.sizeFormatted,
     report.file.durationFormatted,
-    `${report.detected.video.width}×${report.detected.video.height}`,
+    report.detected.video ? `${report.detected.video.width}×${report.detected.video.height}` : '',
     new Date(report.timestamp).toLocaleDateString(),
   ].join('  ·  ');
   txt(meta, M + 4, y + 12, 6.5, 'normal', MUTED);
@@ -158,7 +158,7 @@ export const generatePDF = async (
   // THUMBNAILS
   if (report.thumbnails.length > 0) {
     const thumbs = report.thumbnails.slice(0, 10);
-    const vidAsp = report.detected.video.width / report.detected.video.height;
+    const vidAsp = report.detected.video ? report.detected.video.width / report.detected.video.height : 16/9;
     const GAP    = 2;
     const MAX_H  = 100;
 
@@ -246,27 +246,27 @@ export const generatePDF = async (
         { name: 'Creation Date',  value: report.file.creationDate || 'N/A',                              status: 'info' },
       ],
     },
-    {
+    ...(vid ? [{
       title: 'VIDEO',
       rows: [
-        { name: 'Format',               value: vid.format || vid.codec.toUpperCase(),                                  status: 'info' },
-        { name: 'Format Version',       value: vid.formatVersion || 'N/A',                                             status: 'info' },
-        { name: 'Format Profile',       value: vid.profile || 'N/A',                                                   status: 'info' },
+        { name: 'Format',               value: vid.format || vid.codec.toUpperCase(),                                  status: 'info' as PropStatus },
+        { name: 'Format Version',       value: vid.formatVersion || 'N/A',                                             status: 'info' as PropStatus },
+        { name: 'Format Profile',       value: vid.profile || 'N/A',                                                   status: 'info' as PropStatus },
         { name: 'Codec',                value: vid.codec.toUpperCase(),                                                 status: cs('video-codec') },
-        { name: 'Codec ID',             value: vid.codecId || 'N/A',                                                   status: 'info' },
+        { name: 'Codec ID',             value: vid.codecId || 'N/A',                                                   status: 'info' as PropStatus },
         { name: 'Resolution',           value: `${vid.width} × ${vid.height}`,                                         status: cs('resolution') },
         { name: 'Display Aspect Ratio', value: vid.displayAspectRatio || aspectRatioStr(vid.width, vid.height),        status: cs('aspect-ratio') },
         { name: 'Frame Rate',           value: `${vid.frameRateFormatted} fps`,                                        status: cs('frame-rate') },
-        { name: 'Frame Rate Mode',      value: vid.frameRateMode || 'N/A',                                             status: 'info' },
+        { name: 'Frame Rate Mode',      value: vid.frameRateMode || 'N/A',                                             status: 'info' as PropStatus },
         { name: 'Bit Rate',             value: vid.bitRateFormatted,                                                    status: cs('max-bitrate', 'min-bitrate') },
         { name: 'Chroma',               value: vid.chromaSubsampling,                                                  status: cs('chroma-subsampling') },
         { name: 'Scan Type',            value: vid.scanType,                                                            status: cs('scan-type') },
         { name: 'Bit Depth',            value: vid.bitDepth ? `${vid.bitDepth}-bit` : 'N/A',                          status: cs('bit-depth') },
         { name: 'Color Space',          value: vid.colorSpace || 'N/A',                                                status: cs('color-space') },
-        { name: 'Color Range',          value: vid.colorRange || 'N/A',                                                status: 'info' },
-        { name: 'Color Primaries',      value: vid.colorPrimaries || 'N/A',                                            status: 'info' },
+        { name: 'Color Range',          value: vid.colorRange || 'N/A',                                                status: 'info' as PropStatus },
+        { name: 'Color Primaries',      value: vid.colorPrimaries || 'N/A',                                            status: 'info' as PropStatus },
       ],
-    },
+    }] : []),
   ];
 
   if (report.detected.audio) {
@@ -473,7 +473,7 @@ export const generatePDF = async (
     doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Page ${i} of ${totalPages}  ·  Kissd Video Validation Tool  ·  ${new Date(report.timestamp).toLocaleDateString()}`,
+      `Page ${i} of ${totalPages}  ·  Review V03  ·  ${new Date(report.timestamp).toLocaleDateString()}`,
       PW / 2, PH - 4.5,
       { align: 'center' }
     );

@@ -56,11 +56,19 @@ export interface FastStartInfo {
   moovAt: number;
 }
 
+export interface ImageMetadata {
+  width: number;
+  height: number;
+  format: string;
+  aspectRatio: string;
+}
+
 export interface ScanResult {
   file: FileMetadata;
-  video: VideoMetadata;
+  video?: VideoMetadata;
   audio?: AudioMetadata;
   fastStart: FastStartInfo;
+  image?: ImageMetadata;
 }
 
 export interface ValidationCheck {
@@ -241,6 +249,34 @@ export interface BatchItem {
   error: string | null;
   contrastChecks: ContrastCheck[];
   transcription: TranscriptionResult | null;
+}
+
+export interface AnnotationPoint {
+  x: number; // normalized 0-1
+  y: number; // normalized 0-1
+}
+
+export interface AnnotationStroke {
+  type: 'path' | 'text' | 'eraser';
+  color: string;
+  lineWidth?: number;         // pixels in draw tool units
+  points?: AnnotationPoint[]; // for type 'path'
+  text?: string;              // for type 'text'
+  x?: number;                 // text position, normalized 0-1
+  y?: number;
+  fontSize?: number;          // normalized (fraction of height)
+}
+
+export interface FeedbackComment {
+  id: string;
+  fileKey: string;
+  timecode: number;          // seconds (start)
+  timecodeEnd?: number;      // seconds (end) — undefined means single frame
+  author: string;
+  text: string;
+  createdAt: string;         // ISO date string
+  resolved: boolean;
+  annotationStrokes?: AnnotationStroke[];
 }
 
 export interface AudioLoudness {

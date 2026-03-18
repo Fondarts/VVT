@@ -66,34 +66,36 @@ export const validateAgainstPreset = (
   }
 
   // ── Video ──────────────────────────────────────────────────────────
+  const video = scanResult.video;
+  if (!video) return { checks, result: 'COMPLIANT' };
   const allowedCodecs = preset.allowedVideoCodecs ?? preset.videoCodecs ?? [];
   if (allowedCodecs.length > 0) {
     checks.push({
       id: 'video-codec',
       name: 'Video Codec',
       category: 'video',
-      status: allowedCodecs.includes(scanResult.video.codec.toLowerCase()) ? 'pass' : 'warn',
-      message: `Codec: ${scanResult.video.codec.toUpperCase()}`,
+      status: allowedCodecs.includes(video.codec.toLowerCase()) ? 'pass' : 'warn',
+      message: `Codec: ${video.codec.toUpperCase()}`,
       expected: allowedCodecs.map(c => c.toUpperCase()).join(', '),
-      detected: scanResult.video.codec.toUpperCase(),
+      detected: video.codec.toUpperCase(),
     });
   }
 
   if (preset.resolutions && preset.resolutions.length > 0) {
     const isResolutionValid = preset.resolutions.some(r =>
-      r.width === scanResult.video.width && r.height === scanResult.video.height
+      r.width === video.width && r.height === video.height
     );
     checks.push({
       id: 'resolution',
       name: 'Resolution',
       category: 'video',
       status: isResolutionValid ? 'pass' : 'warn',
-      message: `${scanResult.video.width}x${scanResult.video.height}`,
+      message: `${video.width}x${video.height}`,
       expected: preset.resolutions.map(r => `${r.width}x${r.height}`).join(', '),
-      detected: `${scanResult.video.width}x${scanResult.video.height}`,
+      detected: `${video.width}x${video.height}`,
     });
   } else if (preset.minDimensions || preset.maxDimensions) {
-    const { width, height } = scanResult.video;
+    const { width, height } = video;
     const minOk = !preset.minDimensions || (width >= preset.minDimensions.width && height >= preset.minDimensions.height);
     const maxOk = !preset.maxDimensions || (width <= preset.maxDimensions.width && height <= preset.maxDimensions.height);
     checks.push({
@@ -111,7 +113,7 @@ export const validateAgainstPreset = (
   }
 
   if (preset.aspectRatios?.length) {
-    const w = scanResult.video.width, h = scanResult.video.height;
+    const w = video.width, h = video.height;
     const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
     const g = gcd(w, h);
     const detected = `${w / g}:${h / g}`;
@@ -132,16 +134,16 @@ export const validateAgainstPreset = (
 
   if (preset.frameRates.length > 0) {
     const isFrameRateValid = preset.frameRates.some(fr =>
-      Math.abs(fr - scanResult.video.frameRate) < 0.1
+      Math.abs(fr - video.frameRate) < 0.1
     );
     checks.push({
       id: 'frame-rate',
       name: 'Frame Rate',
       category: 'video',
       status: isFrameRateValid ? 'pass' : 'warn',
-      message: `${scanResult.video.frameRate.toFixed(3)} fps`,
+      message: `${video.frameRate.toFixed(3)} fps`,
       expected: preset.frameRates.join(', ') + ' fps',
-      detected: `${scanResult.video.frameRate.toFixed(3)} fps`,
+      detected: `${video.frameRate.toFixed(3)} fps`,
     });
   }
 
@@ -150,16 +152,16 @@ export const validateAgainstPreset = (
       id: 'scan-type',
       name: 'Scan Type',
       category: 'video',
-      status: scanResult.video.scanType === 'Progressive' ? 'pass' : 'fail',
-      message: scanResult.video.scanType,
+      status: video.scanType === 'Progressive' ? 'pass' : 'fail',
+      message: video.scanType,
       expected: 'Progressive',
-      detected: scanResult.video.scanType,
+      detected: video.scanType,
     });
   }
 
   const chromaList = preset.chromaSubsamplings ?? (preset.chromaSubsampling ? [preset.chromaSubsampling] : []);
   if (chromaList.length) {
-    const detected = scanResult.video.chromaSubsampling;
+    const detected = video.chromaSubsampling;
     checks.push({
       id: 'chroma-subsampling',
       name: 'Chroma Subsampling',
@@ -171,20 +173,20 @@ export const validateAgainstPreset = (
     });
   }
 
-  if (preset.bitDepth !== undefined && scanResult.video.bitDepth !== undefined) {
+  if (preset.bitDepth !== undefined && video.bitDepth !== undefined) {
     checks.push({
       id: 'bit-depth',
       name: 'Video Bit Depth',
       category: 'video',
-      status: scanResult.video.bitDepth >= preset.bitDepth ? 'pass' : 'warn',
-      message: `${scanResult.video.bitDepth}-bit`,
+      status: video.bitDepth >= preset.bitDepth ? 'pass' : 'warn',
+      message: `${video.bitDepth}-bit`,
       expected: `≥ ${preset.bitDepth}-bit`,
-      detected: `${scanResult.video.bitDepth}-bit`,
+      detected: `${video.bitDepth}-bit`,
     });
   }
 
-  if (preset.allowedColorSpaces?.length && scanResult.video.colorSpace) {
-    const detected = scanResult.video.colorSpace;
+  if (preset.allowedColorSpaces?.length && video.colorSpace) {
+    const detected = video.colorSpace;
     checks.push({
       id: 'color-space',
       name: 'Video Color Space',
@@ -214,7 +216,7 @@ export const validateAgainstPreset = (
     });
   }
 
-  const bitrateMbps = scanResult.video.bitRate / 1_000_000;
+  const bitrateMbps = video.bitRate / 1_000_000;
   if (preset.maxBitrateMbps || preset.maxBitrate) {
     const maxMbps = preset.maxBitrateMbps ?? (preset.maxBitrate ? preset.maxBitrate / 1_000_000 : undefined);
     if (maxMbps) {

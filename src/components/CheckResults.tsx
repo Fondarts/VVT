@@ -135,9 +135,21 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
     );
   }
 
-  const { file, video, audio, fastStart } = scanResult;
+  const { file, video, audio, fastStart, image } = scanResult;
 
-  const groups = [
+  // Image mode: simplified groups
+  const groups = image ? [
+    {
+      key: 'image', icon: '🖼️', label: 'Image',
+      rows: [
+        { label: 'Format',     detected: image.format },
+        { label: 'Resolution', detected: `${image.width} × ${image.height}` },
+        { label: 'Aspect Ratio', detected: image.aspectRatio },
+        { label: 'File Size',  detected: file.sizeFormatted },
+        { label: 'Created',    detected: file.creationDate ?? 'N/A' },
+      ] as RowDef[],
+    },
+  ] : [
     {
       key: 'container', icon: '📦', label: 'Container',
       rows: [
@@ -149,7 +161,7 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
         { label: 'Creation Date',  detected: file.creationDate ?? 'N/A' },
       ] as RowDef[],
     },
-    {
+    ...(video ? [{
       key: 'video', icon: '🎬', label: 'Video',
       rows: [
         { label: 'Format',               detected: video.format || video.codec.toUpperCase() },
@@ -169,7 +181,7 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
         { label: 'Color Range',          detected: video.colorRange || 'N/A' },
         { label: 'Color Primaries',      detected: video.colorPrimaries || 'N/A' },
       ] as RowDef[],
-    },
+    }] : []),
     ...(audio ? [{
       key: 'audio', icon: '🔊', label: 'Audio',
       rows: [
@@ -187,7 +199,16 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
   return (
     <div className="card">
       <div className="card-header">
-        <h3 className="card-title" style={{ fontSize: '0.875rem' }}>Checks</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 className="card-title" style={{ fontSize: '0.875rem' }}>Checks</h3>
+          {hasPreset && (() => {
+            const hasFail = checks.some(c => c.status === 'fail');
+            const hasWarn = checks.some(c => c.status === 'warn');
+            if (hasFail) return <AlertCircle size={14} style={{ color: 'var(--color-error)' }} />;
+            if (hasWarn) return <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />;
+            return <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />;
+          })()}
+        </div>
         {hasPreset && (
           <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
             {checks.filter(c => c.status === 'pass').length} / {checks.length} passed

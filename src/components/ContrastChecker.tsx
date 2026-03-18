@@ -117,7 +117,7 @@ const ColorInput: React.FC<{ label: string; value: string; onChange: (v: string)
 // ── Main component ───────────────────────────────────────────────
 
 export const ContrastChecker: React.FC<ContrastCheckerProps> = ({ videoEl, currentTime, onContrastCheck }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [checks, setChecks]       = useState<ContrastCheck[]>([]);
   const [textColor, setTextColor] = useState('#ffffff');
   const [bgColor, setBgColor]     = useState('#000000');

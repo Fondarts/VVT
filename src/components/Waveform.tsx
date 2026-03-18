@@ -36,6 +36,9 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const connectedElRef = useRef<HTMLVideoElement | null>(null);
   const animFrameRef = useRef<number>(0);
+  const playheadRafRef = useRef<number>(0);
+  const currentTimeRef = useRef(currentTime);
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
 
   // Connect Web Audio API to video element
   useEffect(() => {
@@ -302,59 +305,68 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
     waveImageRef.current = ctx.getImageData(0, 0, W, H);
   }, [audioData, truePeakMax, vScale]);
 
-  // Playhead overlay
+  // Playhead overlay — rAF loop reads videoEl.currentTime at 60fps for smooth animation
   useEffect(() => {
     const canvas = waveCanvasRef.current;
-    if (!canvas || !waveImageRef.current || duration <= 0) return;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
+    if (!canvas || duration <= 0) return;
 
-    ctx.putImageData(waveImageRef.current, 0, 0);
+    const draw = () => {
+      if (waveImageRef.current) {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const t = videoEl?.currentTime ?? currentTimeRef.current;
+          ctx.putImageData(waveImageRef.current, 0, 0);
 
-    const x = Math.round((currentTime / duration) * canvas.width);
+          const x = Math.round((t / duration) * canvas.width);
 
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-    ctx.fillRect(0, 0, x, canvas.height);
+          ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+          ctx.fillRect(0, 0, x, canvas.height);
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
-    ctx.stroke();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
 
-    ctx.fillStyle = 'white';
-    ctx.beginPath();
-    ctx.arc(x, canvas.height / 2, 4, 0, Math.PI * 2);
-    ctx.fill();
+          ctx.fillStyle = 'white';
+          ctx.beginPath();
+          ctx.arc(x, canvas.height / 2, 4, 0, Math.PI * 2);
+          ctx.fill();
 
-    const label = formatTime(currentTime);
-    ctx.font = 'bold 10px monospace';
-    const textW = ctx.measureText(label).width;
-    const labelX = Math.min(x + 6, canvas.width - textW - 4);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(labelX - 2, 4, textW + 4, 14);
-    ctx.fillStyle = 'white';
-    ctx.fillText(label, labelX, 14);
-  }, [currentTime, duration]);
+          const label = formatTime(t);
+          ctx.font = 'bold 10px monospace';
+          const textW = ctx.measureText(label).width;
+          const labelX = Math.min(x + 6, canvas.width - textW - 4);
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillRect(labelX - 2, 4, textW + 4, 14);
+          ctx.fillStyle = 'white';
+          ctx.fillText(label, labelX, 14);
+        }
+      }
+      playheadRafRef.current = requestAnimationFrame(draw);
+    };
+
+    playheadRafRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(playheadRafRef.current);
+  }, [videoEl, duration]);
 
   return (
     <div className="card">
       <div
         className="card-header"
         onClick={() => setCollapsed(c => !c)}
-        style={{ cursor: 'pointer', userSelect: 'none' }}
+        style={{ cursor: 'pointer', userSelect: 'none', padding: '6px 12px' }}
       >
-        <h3 className="card-title" style={{ fontSize: '0.875rem' }}>
-          {collapsed ? <ChevronRight size={14} style={{ marginRight: '6px', display: 'inline' }} /> : <ChevronDown size={14} style={{ marginRight: '6px', display: 'inline' }} />}
-          <Activity size={14} style={{ marginRight: '8px', display: 'inline' }} />
-          Audio Waveform
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <Activity size={12} />
+        </div>
         {!collapsed && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
             <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-              scale ×{vScale.toFixed(1)}
+              ×{vScale.toFixed(1)}
             </span>
             <input
               type="range"
@@ -363,7 +375,7 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
               step={0.5}
               value={vScale}
               onChange={e => setVScale(parseFloat(e.target.value))}
-              style={{ width: '80px', cursor: 'pointer', accentColor: '#E1FF1C' }}
+              style={{ width: '60px', cursor: 'pointer', accentColor: '#E1FF1C' }}
               title="Vertical scale"
             />
           </div>

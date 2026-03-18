@@ -376,7 +376,7 @@ input[type="checkbox"] {
 /* Results container */
 .results-container {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 2fr 1fr;
   gap: 24px;
   max-width: 1600px;
   margin: 0 auto;

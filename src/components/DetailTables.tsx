@@ -47,47 +47,47 @@ export const DetailTables: React.FC<DetailTablesProps> = ({ scanResult }) => {
       <tbody>
         <tr>
           <td>Codec</td>
-          <td>{scanResult.video.codec.toUpperCase()}</td>
+          <td>{scanResult.video?.codec.toUpperCase()}</td>
         </tr>
         <tr>
           <td>Profile</td>
-          <td>{scanResult.video.profile || 'N/A'}</td>
+          <td>{scanResult.video?.profile || 'N/A'}</td>
         </tr>
         <tr>
           <td>Resolution</td>
-          <td>{scanResult.video.width} x {scanResult.video.height}</td>
+          <td>{scanResult.video?.width} x {scanResult.video?.height}</td>
         </tr>
         <tr>
           <td>Frame Rate</td>
-          <td>{scanResult.video.frameRateFormatted} fps</td>
+          <td>{scanResult.video?.frameRateFormatted} fps</td>
         </tr>
         <tr>
           <td>Bit Rate</td>
-          <td>{scanResult.video.bitRateFormatted}</td>
+          <td>{scanResult.video?.bitRateFormatted}</td>
         </tr>
         <tr>
           <td>Chroma Subsampling</td>
-          <td>{scanResult.video.chromaSubsampling}</td>
+          <td>{scanResult.video?.chromaSubsampling}</td>
         </tr>
         <tr>
           <td>Scan Type</td>
-          <td>{scanResult.video.scanType}</td>
+          <td>{scanResult.video?.scanType}</td>
         </tr>
         <tr>
           <td>Color Space</td>
-          <td>{scanResult.video.colorSpace || 'N/A'}</td>
+          <td>{scanResult.video?.colorSpace || 'N/A'}</td>
         </tr>
         <tr>
           <td>Color Range</td>
-          <td>{scanResult.video.colorRange || 'N/A'}</td>
+          <td>{scanResult.video?.colorRange || 'N/A'}</td>
         </tr>
         <tr>
           <td>Color Primaries</td>
-          <td>{scanResult.video.colorPrimaries || 'N/A'}</td>
+          <td>{scanResult.video?.colorPrimaries || 'N/A'}</td>
         </tr>
         <tr>
           <td>Color Transfer</td>
-          <td>{scanResult.video.colorTransfer || 'N/A'}</td>
+          <td>{scanResult.video?.colorTransfer || 'N/A'}</td>
         </tr>
       </tbody>
     </table>

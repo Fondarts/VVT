@@ -79,10 +79,10 @@ export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
                 ref={playerRef}
                 compact
                 videoSrc={item.videoSrc}
-                videoCodec={item.scanResult?.video.codec ?? ''}
-                videoWidth={item.scanResult?.video.width ?? 0}
-                videoHeight={item.scanResult?.video.height ?? 0}
-                frameRate={item.scanResult?.video.frameRate ?? 0}
+                videoCodec={item.scanResult?.video?.codec ?? ''}
+                videoWidth={item.scanResult?.video?.width ?? 0}
+                videoHeight={item.scanResult?.video?.height ?? 0}
+                frameRate={item.scanResult?.video?.frameRate ?? 0}
                 subtitles={item.transcription?.segments}
                 onVideoReady={setVideoEl}
                 onTimeUpdate={setVideoCurrentTime}
@@ -117,7 +117,7 @@ export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
             <div style={{ flexShrink: 0 }}>
               <ReportHeader
                 file={item.scanResult.file}
-                video={item.scanResult.video}
+                video={item.scanResult.video!}
                 result={item.validationResult || 'COMPLIANT'}
               />
             </div>
