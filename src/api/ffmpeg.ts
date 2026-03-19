@@ -1531,3 +1531,170 @@ export function exportSRT(segments: Array<{ from: number; to: number; text: stri
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// ── Export a timeline of blocks (slate images, video, black) ──────────────────
+//
+// Builds individual MP4 clips for each block, then concatenates them.
+
+export interface ExportBlock {
+  type: 'slate' | 'video' | 'black';
+  duration: number;
+  slatePng?: Uint8Array;   // required for type 'slate'
+}
+
+export async function exportTimeline(
+  videoFile: File,
+  blocks: ExportBlock[],
+  opts?: {
+    onProgress?: (pct: number, label: string) => void;
+  },
+): Promise<string> {
+  const ff = await loadFFmpeg();
+
+  opts?.onProgress?.(2, 'Writing video file…');
+
+  const inputName = `input_video.${videoFile.name.split('.').pop() || 'mp4'}`;
+  await ff.writeFile(inputName, await fetchFile(videoFile));
+
+  // Probe original to get resolution and frame rate
+  opts?.onProgress?.(5, 'Probing video…');
+  let fps = 25;
+  let width = 1920;
+  let height = 1080;
+  let hasAudio = false;
+
+  const logLines: string[] = [];
+  const logHandler = ({ message }: { message: string }) => { logLines.push(message); };
+  ff.on('log', logHandler);
+  try {
+    await ff.exec(['-hide_banner', '-i', inputName, '-f', 'null', '-']);
+  } catch { /* ffmpeg returns non-zero when no output specified, that's fine */ }
+  ff.off('log', logHandler);
+
+  for (const line of logLines) {
+    const resMatch = line.match(/(\d{2,5})x(\d{2,5})/);
+    if (resMatch) {
+      width = parseInt(resMatch[1]);
+      height = parseInt(resMatch[2]);
+    }
+    const fpsMatch = line.match(/([\d.]+)\s*fps/);
+    if (fpsMatch) fps = parseFloat(fpsMatch[1]);
+    if (/Audio:/.test(line)) hasAudio = true;
+  }
+
+  const clipFiles: string[] = [];
+  const allTempFiles: string[] = [inputName];
+
+  // Progress budget: 8-80% for building clips, 80-95% for concat
+  const clipBudget = 72;  // percent points
+  const totalBlocks = blocks.length;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const clipName = `clip_${i}.mp4`;
+    clipFiles.push(clipName);
+    allTempFiles.push(clipName);
+
+    const basePct = 8 + Math.round((i / totalBlocks) * clipBudget);
+    const blockLabel = `Block ${i + 1}/${totalBlocks}`;
+
+    if (block.type === 'slate') {
+      opts?.onProgress?.(basePct, `${blockLabel}: Creating slate…`);
+
+      const slatePngName = `slate_${i}.png`;
+      await ff.writeFile(slatePngName, block.slatePng!);
+      allTempFiles.push(slatePngName);
+
+      await ff.exec([
+        '-threads', '1',
+        '-loop', '1',
+        '-framerate', String(fps),
+        '-i', slatePngName,
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-t', String(block.duration),
+        '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-shortest',
+        '-y', clipName,
+      ]);
+
+    } else if (block.type === 'black') {
+      opts?.onProgress?.(basePct, `${blockLabel}: Creating black…`);
+
+      await ff.exec([
+        '-threads', '1',
+        '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}:d=${block.duration}`,
+        '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=stereo`,
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-t', String(block.duration),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-shortest',
+        '-y', clipName,
+      ]);
+
+    } else {
+      // video block — re-encode to compatible format
+      opts?.onProgress?.(basePct, `${blockLabel}: Encoding video…`);
+
+      const progressHandler = ({ progress }: { progress: number }) => {
+        const p = basePct + Math.round(progress * (clipBudget / totalBlocks));
+        opts?.onProgress?.(Math.min(80, p), `${blockLabel}: Encoding video…`);
+      };
+      ff.on('progress', progressHandler);
+      try {
+        await ff.exec([
+          '-threads', '1',
+          '-i', inputName,
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-crf', '18',
+          '-pix_fmt', 'yuv420p',
+          ...(hasAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-an']),
+          '-movflags', '+faststart',
+          '-y', clipName,
+        ]);
+      } finally {
+        ff.off('progress', progressHandler);
+      }
+    }
+  }
+
+  // Concatenate all clips
+  opts?.onProgress?.(82, 'Concatenating…');
+
+  const concatContent = clipFiles.map(f => `file '${f}'`).join('\n') + '\n';
+  await ff.writeFile('concat.txt', new TextEncoder().encode(concatContent));
+  allTempFiles.push('concat.txt');
+
+  const outputName = 'timeline_output.mp4';
+  allTempFiles.push(outputName);
+
+  await ff.exec([
+    '-threads', '1',
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', 'concat.txt',
+    '-c', 'copy',
+    '-movflags', '+faststart',
+    '-y', outputName,
+  ]);
+
+  opts?.onProgress?.(95, 'Reading output…');
+
+  const data = await ff.readFile(outputName);
+  const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: 'video/mp4' });
+  const url = URL.createObjectURL(blob);
+
+  // Cleanup
+  for (const f of allTempFiles) {
+    try { await ff.deleteFile(f); } catch { /* ignore */ }
+  }
+
+  opts?.onProgress?.(100, 'Done');
+  return url;
+}

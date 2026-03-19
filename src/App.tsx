@@ -49,6 +49,10 @@ import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { FeedbackPanel } from './components/FeedbackPanel';
 import { SlateCreator } from './components/SlateCreator';
+import { EditTimeline, blockId } from './components/EditTimeline';
+import type { TimelineBlock, TimelinePreview } from './components/EditTimeline';
+import { exportTimeline } from './api/ffmpeg';
+import type { ExportBlock } from './api/ffmpeg';
 import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult } from './shared/types';
 
@@ -158,6 +162,18 @@ const App: React.FC = () => {
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'specs' | 'feedback' | 'tools'>('feedback');
+
+  // ── Edit timeline state ──
+  const [timelineBlocks, setTimelineBlocks] = useState<TimelineBlock[]>([]);
+  const [tlExporting, setTlExporting] = useState(false);
+  const [tlExportPct, setTlExportPct] = useState(0);
+  const [tlExportLabel, setTlExportLabel] = useState('');
+  const [tlPreview, setTlPreview] = useState<TimelinePreview | null>(null);
+  // Unified timeline playback
+  const [tlGlobalTime, setTlGlobalTime] = useState(0);
+  const [tlIsPlaying, setTlIsPlaying] = useState(false);
+  const tlAnimRef = useRef(0);
+  const tlLastFrameRef = useRef(0);
   const [feedbackCount, setFeedbackCount] = useState(0);
   const [feedbackMarkers, setFeedbackMarkers] = useState<{ time: number; id: string; author: string }[]>([]);
   const [feedbackMarkerRanges, setFeedbackMarkerRanges] = useState<{ start: number; end: number; id: string; author: string }[]>([]);
@@ -400,6 +416,183 @@ const App: React.FC = () => {
     if (!selectedFile) return;
     updateCommentRange(id, end);
   }, [selectedFile]);
+
+  // ── Timeline handlers ──
+  const handleAddSlateBlock = useCallback((block: TimelineBlock) => {
+    setTimelineBlocks(prev => {
+      // If empty, initialize with the video block first
+      if (prev.length === 0) {
+        const videoDur = scanResult?.file?.duration ?? 30;
+        const videoBlock: TimelineBlock = {
+          id: blockId(),
+          type: 'video',
+          duration: videoDur,
+          label: selectedFile?.name ?? 'Video',
+        };
+        return [block, videoBlock];
+      }
+      // Insert slate before the first video block
+      const videoIdx = prev.findIndex(b => b.type === 'video');
+      const next = [...prev];
+      next.splice(videoIdx >= 0 ? videoIdx : 0, 0, block);
+      return next;
+    });
+  }, [scanResult, selectedFile]);
+
+  const handleTimelinePreview = useCallback((preview: TimelinePreview | null) => {
+    setTlPreview(preview);
+    if (preview?.blockType === 'video' && preview.videoOffset !== undefined) {
+      const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
+      if (el) {
+        el.currentTime = preview.videoOffset;
+      }
+    }
+  }, [videoEl]);
+
+  const handleTimelineExport = useCallback(async () => {
+    if (!selectedFile || timelineBlocks.length < 2 || tlExporting) return;
+    setTlExporting(true);
+    setTlExportPct(0);
+    setTlExportLabel('Starting…');
+    try {
+      const exportBlocks: ExportBlock[] = timelineBlocks.map(b => ({
+        type: b.type,
+        duration: b.duration,
+        slatePng: b.slatePng,
+      }));
+      const url = await exportTimeline(selectedFile, exportBlocks, {
+        onProgress: (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
+      });
+      const a = document.createElement('a');
+      a.download = `${selectedFile.name.replace(/\.[^.]+$/, '')}_edit.mp4`;
+      a.href = url;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Timeline export failed:', err);
+      setTlExportLabel(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
+    } finally {
+      setTlExporting(false);
+    }
+  }, [selectedFile, timelineBlocks, tlExporting]);
+
+  // ── Compute timeline block ranges (memoized) ──
+  const tlRanges = React.useMemo(() => {
+    if (timelineBlocks.length < 2) return null;
+    let acc = 0;
+    const ranges = timelineBlocks.map(b => {
+      const start = acc;
+      acc += b.duration;
+      return { ...b, start, end: acc };
+    });
+    const videoBlock = ranges.find(r => r.type === 'video');
+    if (!videoBlock) return null;
+    return { ranges, videoBlock, totalDuration: acc };
+  }, [timelineBlocks]);
+
+  // ── Resolve which block is at a given global time ──
+  const resolveBlockAt = useCallback((t: number) => {
+    if (!tlRanges) return null;
+    return tlRanges.ranges.find(r => t >= r.start && t < r.end) ?? tlRanges.ranges[tlRanges.ranges.length - 1];
+  }, [tlRanges]);
+
+  // ── Sync preview overlay + video element based on tlGlobalTime ──
+  useEffect(() => {
+    if (!tlRanges) { setTlPreview(null); return; }
+    const block = resolveBlockAt(tlGlobalTime);
+    if (!block) return;
+
+    if (block.type === 'video') {
+      setTlPreview(null);
+      const videoOffset = tlGlobalTime - block.start;
+      if (videoEl && Math.abs(videoEl.currentTime - videoOffset) > 0.3) {
+        videoEl.currentTime = videoOffset;
+      }
+    } else if (block.type === 'slate') {
+      setTlPreview({ blockType: 'slate', thumbnail: block.thumbnail });
+      if (videoEl && !videoEl.paused) videoEl.pause();
+    } else {
+      setTlPreview({ blockType: 'black' });
+      if (videoEl && !videoEl.paused) videoEl.pause();
+    }
+  }, [tlGlobalTime, tlRanges, resolveBlockAt, videoEl]);
+
+  // ── Animation loop for timeline playback ──
+  useEffect(() => {
+    if (!tlIsPlaying || !tlRanges) return;
+
+    tlLastFrameRef.current = performance.now();
+
+    const tick = () => {
+      const now = performance.now();
+      const dt = (now - tlLastFrameRef.current) / 1000;
+      tlLastFrameRef.current = now;
+
+      setTlGlobalTime(prev => {
+        const next = prev + dt;
+        if (next >= tlRanges.totalDuration) {
+          // Reached end — stop playback
+          setTlIsPlaying(false);
+          if (videoEl && !videoEl.paused) videoEl.pause();
+          return tlRanges.totalDuration;
+        }
+        return next;
+      });
+
+      tlAnimRef.current = requestAnimationFrame(tick);
+    };
+
+    // If we're entering a video block, make sure the video is playing
+    const block = resolveBlockAt(tlGlobalTime);
+    if (block?.type === 'video' && videoEl?.paused) {
+      videoEl.play().catch(() => {});
+    }
+
+    tlAnimRef.current = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(tlAnimRef.current);
+  }, [tlIsPlaying, tlRanges, resolveBlockAt, videoEl]);
+
+  // ── When video element time updates during playback, sync global time ──
+  useEffect(() => {
+    if (!tlIsPlaying || !tlRanges) return;
+    const block = resolveBlockAt(tlGlobalTime);
+    if (block?.type === 'video' && videoEl) {
+      // video is the source of truth when playing in a video block
+      const globalFromVideo = block.start + videoEl.currentTime;
+      setTlGlobalTime(globalFromVideo);
+    }
+  }, [videoCurrentTime]);
+
+  // ── Timeline play/pause/seek handlers ──
+  const handleTlPlayPause = useCallback(() => {
+    if (!tlRanges) return;
+    if (tlIsPlaying) {
+      setTlIsPlaying(false);
+      if (videoEl && !videoEl.paused) videoEl.pause();
+    } else {
+      // If at the end, restart
+      if (tlGlobalTime >= tlRanges.totalDuration - 0.1) {
+        setTlGlobalTime(0);
+      }
+      setTlIsPlaying(true);
+      const block = resolveBlockAt(tlGlobalTime);
+      if (block?.type === 'video' && videoEl) {
+        videoEl.currentTime = tlGlobalTime - block.start;
+        videoEl.play().catch(() => {});
+      }
+    }
+  }, [tlRanges, tlIsPlaying, tlGlobalTime, resolveBlockAt, videoEl]);
+
+  const handleTlSeek = useCallback((time: number) => {
+    if (!tlRanges) return;
+    const clamped = Math.max(0, Math.min(time, tlRanges.totalDuration));
+    setTlGlobalTime(clamped);
+    const block = resolveBlockAt(clamped);
+    if (block?.type === 'video' && videoEl) {
+      videoEl.currentTime = clamped - block.start;
+    }
+  }, [tlRanges, resolveBlockAt, videoEl]);
 
   const handleSnapshot = useCallback(async (_time: number) => {
     const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
@@ -764,7 +957,12 @@ const App: React.FC = () => {
         {mode === 'single' && videoSrc && (
           <div className="results-container">
             {/* Left column */}
-            <div className="results-column" style={{ position: 'sticky', top: 0, height: 'calc(100vh - 130px)', overflow: 'hidden' }}>
+            <div className="results-column" style={{
+              position: 'sticky', top: 0,
+              height: 'calc(100vh - 130px)',
+              display: 'flex', flexDirection: 'column',
+              overflow: 'hidden',
+            }}>
               {isImage ? (
                 <ImageViewer
                   src={videoSrc}
@@ -775,6 +973,23 @@ const App: React.FC = () => {
                   onPlaceMarker={handleImagePlaceMarker}
                 />
               ) : (
+                <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                {/* Timeline preview overlay — only covers player area */}
+                {tlPreview && tlPreview.blockType !== 'video' && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 50,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#000',
+                  }}>
+                    {tlPreview.blockType === 'slate' && tlPreview.thumbnail && (
+                      <img src={tlPreview.thumbnail} alt="Slate preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    )}
+                  </div>
+                )}
                 <VideoPlayer
                   ref={videoPlayerRef}
                   videoSrc={videoSrc}
@@ -798,16 +1013,39 @@ const App: React.FC = () => {
                   onTimeUpdate={setVideoCurrentTime}
                   onVideoReady={setVideoEl}
                 />
+                </div>
+              )}
+
+              {!isImage && timelineBlocks.length > 0 && (
+                <div style={{ flexShrink: 0 }}>
+                <EditTimeline
+                  blocks={timelineBlocks}
+                  onChange={setTimelineBlocks}
+                  onExport={handleTimelineExport}
+                  exporting={tlExporting}
+                  exportPct={tlExportPct}
+                  exportLabel={tlExportLabel}
+                  videoDuration={scanResult?.file?.duration ?? 0}
+                  onPreview={handleTimelinePreview}
+                  globalTime={tlGlobalTime}
+                  isPlaying={tlIsPlaying}
+                  onPlayPause={handleTlPlayPause}
+                  onSeek={handleTlSeek}
+                />
+                </div>
               )}
 
               {!isImage && scanResult && waveformData.length > 0 && (
+                <div style={{ flexShrink: 0 }}>
                 <Waveform
                   audioData={waveformData}
                   duration={scanResult.file.duration}
                   currentTime={videoCurrentTime}
                   videoEl={videoEl}
                   truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
+                  defaultCollapsed={timelineBlocks.length > 0}
                 />
+                </div>
               )}
             </div>
 
@@ -1047,7 +1285,7 @@ const App: React.FC = () => {
                           </h3>
                         </div>
                         <div style={{ padding: '12px' }}>
-                          <SlateCreator />
+                          <SlateCreator videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} />
                         </div>
                       </div>
                     </>

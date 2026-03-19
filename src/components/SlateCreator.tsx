@@ -1,5 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Plus, Trash2, Download, GripVertical } from 'lucide-react';
+import { Plus, Trash2, Download, GripVertical, Film } from 'lucide-react';
+import type { TimelineBlock } from './EditTimeline';
+import { blockId } from './EditTimeline';
 
 interface SlateField {
   id: string;
@@ -14,7 +16,7 @@ const DEFAULT_FIELDS: SlateField[] = [
   { id: '4', label: 'trt', value: '' },
   { id: '5', label: 'ad-id', value: '' },
   { id: '6', label: 'audio', value: '' },
-  { id: '7', label: 'date', value: '' },
+  { id: '7', label: 'date', value: new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-') },
   { id: '8', label: 'product', value: '' },
 ];
 
@@ -34,7 +36,12 @@ const SEP_X = VW * 0.3;       // moved left from 0.42
 const LOGO_H = 100;
 const LOGO_PAD = 50;
 
-export const SlateCreator: React.FC = () => {
+interface Props {
+  videoFile?: File | null;
+  onAddSlateBlock?: (block: TimelineBlock) => void;
+}
+
+export const SlateCreator: React.FC<Props> = ({ videoFile, onAddSlateBlock }) => {
   const [fields, setFields] = useState<SlateField[]>(DEFAULT_FIELDS);
   const [bgColor, setBgColor] = useState('#333333');
   const [sepColor, setSepColor] = useState('#999999');
@@ -45,6 +52,7 @@ export const SlateCreator: React.FC = () => {
   const [logoCorner, setLogoCorner] = useState<LogoCorner>('top-right');
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [slateDuration, setSlateDuration] = useState(5);
 
   const handleFieldChange = (id: string, key: 'label' | 'value', val: string) => {
     setFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
@@ -156,6 +164,32 @@ export const SlateCreator: React.FC = () => {
     link.download = 'slate.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
+  };
+
+  const handleAddToTimeline = () => {
+    if (!onAddSlateBlock) return;
+    renderSlate();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Get thumbnail for preview
+    const thumbnail = canvas.toDataURL('image/png');
+
+    // Get PNG bytes for export
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      blob.arrayBuffer().then(buf => {
+        const block: TimelineBlock = {
+          id: blockId(),
+          type: 'slate',
+          duration: slateDuration,
+          label: 'Slate',
+          thumbnail,
+          slatePng: new Uint8Array(buf),
+        };
+        onAddSlateBlock(block);
+      });
+    }, 'image/png');
   };
 
   /* ── Corner selector mini-grid ── */
@@ -286,11 +320,39 @@ export const SlateCreator: React.FC = () => {
         />
       </div>
 
-      {/* ── Download ── */}
-      <button className="btn btn-primary btn-sm" onClick={handleDownload}
-        style={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <Download size={13} /> Download PNG
-      </button>
+      {/* ── Actions ── */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-primary btn-sm" onClick={handleDownload}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Download size={13} /> Download PNG
+        </button>
+
+        {videoFile && onAddSlateBlock && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <label style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>Duration</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={30}
+                value={slateDuration}
+                onChange={e => setSlateDuration(Math.max(1, Math.min(30, parseInt(e.target.value) || 5)))}
+                style={{ width: '48px', fontSize: '0.72rem', padding: '3px 6px', textAlign: 'center' }}
+              />
+              <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>s</span>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleAddToTimeline}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Film size={13} />
+              Add slate to timeline
+            </button>
+          </>
+        )}
+      </div>
 
       <canvas ref={canvasRef} style={{ display: 'none' }} />
     </div>

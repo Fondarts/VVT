@@ -7,6 +7,7 @@ interface WaveformProps {
   currentTime: number;
   videoEl?: HTMLVideoElement | null;
   truePeakMax?: number;
+  defaultCollapsed?: boolean;
 }
 
 function formatTime(secs: number): string {
@@ -23,8 +24,8 @@ function dBToLinear(dB: number): number {
 const WAVEFORM_HEIGHT = 80;
 const VU_WIDTH = 52;
 
-export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, currentTime, videoEl, truePeakMax }) => {
-  const [collapsed, setCollapsed] = useState(false);
+export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, currentTime, videoEl, truePeakMax, defaultCollapsed }) => {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
   const [vScale, setVScale] = useState(1);
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
   const vuCanvasRef = useRef<HTMLCanvasElement>(null);
