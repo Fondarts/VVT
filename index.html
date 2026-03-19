@@ -24,7 +24,20 @@
       (GitHub Pages, Netlify, etc.) by injecting COOP/COEP headers via
       a Service Worker. The Vite dev server sets these headers directly.
     -->
-    <script src="/coi-serviceworker.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+      // In dev, Vite sets COOP/COEP headers directly — no SW needed.
+      // In production, register the service worker for SharedArrayBuffer support.
+      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        const s = document.createElement('script');
+        s.src = '/coi-serviceworker.js';
+        document.head.appendChild(s);
+      } else if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs =>
+          regs.forEach(r => r.unregister())
+        );
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Check, Trash2, Clock, Pencil, ChevronRight, Type, Eraser, Minus, Plus, Undo2 } from 'lucide-react';
 
 const DRAW_COLORS = ['#FA4900', '#E1FF1C', '#FF3B30', '#FF9F0A', '#34C759', '#0A84FF', '#FFFFFF', '#000000'];
 import type { FeedbackComment, AnnotationStroke } from '../shared/types';
 import {
   fileKey,
-  getComments,
+  subscribeComments,
   addComment,
   deleteComment,
   toggleResolved,
   updateComment,
-  getAuthorName,
 } from '../utils/feedbackStorage';
 
 interface Props {
@@ -19,6 +18,8 @@ interface Props {
   currentTime: number;      // seconds
   frameRate: number;
   videoEl: HTMLVideoElement | null;
+  authorName: string;
+  authorPhoto?: string;
   onSeek?: (seconds: number) => void;
   onCommentsChange?: (count: number) => void;
   onMarkersChange?: (markers: { time: number; id: string; author: string }[]) => void;
@@ -50,6 +51,8 @@ export const FeedbackPanel: React.FC<Props> = ({
   currentTime,
   frameRate,
   videoEl: _videoEl,
+  authorName,
+  authorPhoto,
   onSeek,
   onCommentsChange,
   onMarkersChange,
@@ -60,13 +63,13 @@ export const FeedbackPanel: React.FC<Props> = ({
   onSetLineWidth,
   onUndoLastStroke,
   onInitializeDrawStrokes,
-  refreshKey,
+  refreshKey: _refreshKey,
   stagedTimecode,
   onStagedTimecodeConsumed,
 }) => {
   const key = fileKey(fileName, fileSize);
-  const [comments, setComments] = useState<FeedbackComment[]>(() => getComments(key));
-  const [author] = useState(() => getAuthorName());
+  const [comments, setComments] = useState<FeedbackComment[]>([]);
+  const commentsRef = useRef<FeedbackComment[]>([]);
   const [text, setText] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [activeAnnotationId, setActiveAnnotationId] = useState<string | null>(null);
@@ -84,28 +87,25 @@ export const FeedbackPanel: React.FC<Props> = ({
   const [pendingStrokes, setPendingStrokes] = useState<AnnotationStroke[]>([]);
   const [drawLineWidth, setDrawLineWidthLocal] = useState(3);
 
-  const emitMarkers = (list: typeof comments) => {
+  const emitMarkers = (list: FeedbackComment[]) => {
     onMarkersChange?.(list.filter(c => !c.timecodeEnd).map(c => ({ time: c.timecode, id: c.id, author: c.author })));
     onMarkerRangesChange?.(
       list
-        .filter(c => c.timecodeEnd !== undefined)
+        .filter(c => c.timecodeEnd !== undefined && c.timecodeEnd !== null)
         .map(c => ({ start: c.timecode, end: c.timecodeEnd!, id: c.id, author: c.author }))
     );
   };
 
-  // Reload on file change
+  // Real-time Firestore subscription
   useEffect(() => {
-    const loaded = getComments(key);
-    setComments(loaded);
-    onCommentsChange?.(loaded.length);
-    emitMarkers(loaded);
+    const unsub = subscribeComments(key, (loaded) => {
+      commentsRef.current = loaded;
+      setComments(loaded);
+      onCommentsChange?.(loaded.length);
+      emitMarkers(loaded);
+    });
+    return unsub;
   }, [key]);
-
-  // Reload when parent signals an external update (e.g. marker drag)
-  useEffect(() => {
-    if (!refreshKey) return;
-    setComments(getComments(key));
-  }, [refreshKey]);
 
   // Open form when bracket marker is confirmed in player
   useEffect(() => {
@@ -119,11 +119,6 @@ export const FeedbackPanel: React.FC<Props> = ({
     onStagedTimecodeConsumed?.();
   }, [stagedTimecode]);
 
-  useEffect(() => {
-    onCommentsChange?.(comments.length);
-    emitMarkers(comments);
-  }, [comments]);
-
   // Auto-show/dismiss annotation based on current playback position
   useEffect(() => {
     const fps = frameRate || 25;
@@ -131,7 +126,7 @@ export const FeedbackPanel: React.FC<Props> = ({
 
     const matching = comments.find(c => {
       if (!c.annotationStrokes?.length) return false;
-      if (c.timecodeEnd !== undefined) {
+      if (c.timecodeEnd !== undefined && c.timecodeEnd !== null) {
         return currentTime >= c.timecode && currentTime <= c.timecodeEnd;
       }
       return currentFrame === Math.round(c.timecode * fps);
@@ -169,20 +164,20 @@ export const FeedbackPanel: React.FC<Props> = ({
     });
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!text.trim()) return;
     const captured = onCaptureDrawStrokes?.() ?? [];
     const strokes = captured.length > 0 ? captured : pendingStrokes;
-    const comment = addComment(key, {
+    await addComment(key, {
       timecode: stagedStart ?? currentTime,
       timecodeEnd: rangeMode && timecodeEnd !== null ? timecodeEnd : undefined,
-      author: author.trim() || 'Anonymous',
+      author: authorName || 'Anonymous',
       text: text.trim(),
       annotationStrokes: strokes.length > 0 ? strokes : undefined,
+      authorPhoto: authorPhoto,
     });
-    setComments(prev => [...prev, comment]);
+    // onSnapshot will update comments state automatically
     if (strokes.length > 0) {
-      setActiveAnnotationId(comment.id);
       onAnnotationChange?.(strokes);
     } else {
       onAnnotationChange?.(null);
@@ -195,12 +190,13 @@ export const FeedbackPanel: React.FC<Props> = ({
     setStagedStart(null);
   };
 
-  const handleDelete = (id: string) => {
-    setComments(deleteComment(key, id));
+  const handleDelete = async (id: string) => {
+    await deleteComment(id);
   };
 
-  const handleToggleResolved = (id: string) => {
-    setComments(toggleResolved(key, id));
+  const handleToggleResolved = async (id: string) => {
+    const comment = comments.find(c => c.id === id);
+    if (comment) await toggleResolved(id, comment.resolved);
   };
 
   const handleEditStart = (comment: FeedbackComment) => {
@@ -210,14 +206,14 @@ export const FeedbackPanel: React.FC<Props> = ({
     onInitializeDrawStrokes?.(comment.annotationStrokes ?? []);
   };
 
-  const handleEditSave = (comment: FeedbackComment) => {
+  const handleEditSave = async (comment: FeedbackComment) => {
     if (!editText.trim()) return;
     // captureDrawStrokes returns the full canvas state (existing + new + erasures applied)
     const finalStrokes = onCaptureDrawStrokes?.();
-    setComments(updateComment(key, comment.id, {
+    await updateComment(comment.id, {
       text: editText.trim(),
       annotationStrokes: finalStrokes && finalStrokes.length > 0 ? finalStrokes : comment.annotationStrokes,
-    }));
+    });
     setEditingId(null);
     setEditText('');
   };
@@ -456,7 +452,7 @@ export const FeedbackPanel: React.FC<Props> = ({
                   >
                     <Clock size={9} />
                     {formatTimecode(comment.timecode, frameRate)}
-                    {comment.timecodeEnd !== undefined && (
+                    {comment.timecodeEnd !== undefined && comment.timecodeEnd !== null && (
                       <>
                         <ChevronRight size={8} style={{ opacity: 0.6 }} />
                         {formatTimecode(comment.timecodeEnd, frameRate)}

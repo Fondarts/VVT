@@ -13,7 +13,10 @@ import {
   Trash2,
   RotateCcw,
   Clapperboard,
+  LogOut,
+  MessageCircle,
 } from 'lucide-react';
+import { useAuth } from './hooks/useAuth';
 import type {
   ScanResult,
   ValidationCheck,
@@ -45,7 +48,7 @@ import { ThumbnailGrid } from './components/ThumbnailGrid';
 import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { FeedbackPanel } from './components/FeedbackPanel';
-import { fileKey, getComments, updateCommentTimecode } from './utils/feedbackStorage';
+import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult } from './shared/types';
 
 // ── Rule-based custom preset form ───────────────────────────────────
@@ -96,6 +99,7 @@ interface CustomPresetForm { name: string; rules: Record<string, RuleState>; }
 const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
 
 const App: React.FC = () => {
+  const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
@@ -156,7 +160,6 @@ const App: React.FC = () => {
   const [feedbackCount, setFeedbackCount] = useState(0);
   const [feedbackMarkers, setFeedbackMarkers] = useState<{ time: number; id: string; author: string }[]>([]);
   const [feedbackMarkerRanges, setFeedbackMarkerRanges] = useState<{ start: number; end: number; id: string; author: string }[]>([]);
-  const [feedbackRefreshKey, setFeedbackRefreshKey] = useState(0);
   const [stagedMarker, setStagedMarker] = useState<{ start: number; end: number; strokes?: AnnotationStroke[] } | null>(null);
   const [annotationOverlay, setAnnotationOverlay] = useState<AnnotationStroke[] | null>(null);
   const [isTranscoding, setIsTranscoding] = useState(false);
@@ -382,29 +385,19 @@ const App: React.FC = () => {
 
   const handleMarkerMove = useCallback((id: string, newTime: number) => {
     if (!selectedFile) return;
-    const key = fileKey(selectedFile.name, selectedFile.size);
-    const comment = getComments(key).find(c => c.id === id);
-    if (!comment) return;
-    updateCommentTimecode(key, id, newTime, comment.timecodeEnd);
+    updateCommentTimecode(id, newTime);
     setFeedbackMarkers(prev => prev.map(m => m.id === id ? { ...m, time: newTime } : m));
-    setFeedbackRefreshKey(k => k + 1);
   }, [selectedFile]);
 
   const handleMarkerRangeMove = useCallback((id: string, newStart: number, newEnd: number) => {
     if (!selectedFile) return;
-    const key = fileKey(selectedFile.name, selectedFile.size);
-    updateCommentTimecode(key, id, newStart, newEnd);
+    updateCommentTimecodes(id, newStart, newEnd);
     setFeedbackMarkerRanges(prev => prev.map(r => r.id === id ? { ...r, start: newStart, end: newEnd } : r));
-    setFeedbackRefreshKey(k => k + 1);
   }, [selectedFile]);
 
   const handleMarkerSetRange = useCallback((id: string, end: number) => {
     if (!selectedFile) return;
-    const key = fileKey(selectedFile.name, selectedFile.size);
-    const comment = getComments(key).find(c => c.id === id);
-    if (!comment) return;
-    updateCommentTimecode(key, id, comment.timecode, end);
-    setFeedbackRefreshKey(k => k + 1);
+    updateCommentRange(id, end);
   }, [selectedFile]);
 
   const handleSnapshot = useCallback(async (_time: number) => {
@@ -703,6 +696,28 @@ const App: React.FC = () => {
               )}
             </>
           )}
+
+          {/* Auth button */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {authLoading ? null : user ? (
+              <>
+                {user.photoURL && (
+                  <img src={user.photoURL} alt="" style={{ width: 24, height: 24, borderRadius: '50%' }} referrerPolicy="no-referrer" />
+                )}
+                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user.displayName || user.email}
+                </span>
+                <button className="btn btn-secondary btn-sm" onClick={signOut} title="Sign out" style={{ padding: '4px 6px' }}>
+                  <LogOut size={14} />
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-secondary btn-sm" onClick={signIn} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <svg width="14" height="14" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                Sign in
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -966,26 +981,41 @@ const App: React.FC = () => {
 
               {/* ── Feedback tab ─────────────────────────────────────── */}
               {activeRightTab === 'feedback' && selectedFile && (
-                <FeedbackPanel
-                  fileName={selectedFile.name}
-                  fileSize={selectedFile.size}
-                  currentTime={videoCurrentTime}
-                  frameRate={scanResult?.video?.frameRate ?? 0}
-                  videoEl={videoEl}
-                  onSeek={s => videoPlayerRef.current?.seekTo(s * 1000)}
-                  onCommentsChange={setFeedbackCount}
-                  onMarkersChange={setFeedbackMarkers}
-                  onMarkerRangesChange={setFeedbackMarkerRanges}
-                  onAnnotationChange={setAnnotationOverlay}
-                  onStartDraw={(color, tool) => videoPlayerRef.current?.startDraw(color, tool)}
-                  onCaptureDrawStrokes={() => videoPlayerRef.current?.captureDrawStrokes() ?? []}
-                  onSetLineWidth={w => videoPlayerRef.current?.setLineWidth(w)}
-                  onUndoLastStroke={() => videoPlayerRef.current?.undoLastStroke()}
-                  onInitializeDrawStrokes={s => videoPlayerRef.current?.initializeDrawStrokes(s)}
-                  refreshKey={feedbackRefreshKey}
-                  stagedTimecode={stagedMarker ?? undefined}
-                  onStagedTimecodeConsumed={() => setStagedMarker(null)}
-                />
+                user ? (
+                  <FeedbackPanel
+                    fileName={selectedFile.name}
+                    fileSize={selectedFile.size}
+                    currentTime={videoCurrentTime}
+                    frameRate={scanResult?.video?.frameRate ?? 0}
+                    videoEl={videoEl}
+                    authorName={user.displayName || user.email || 'Anonymous'}
+                    authorPhoto={user.photoURL || undefined}
+                    onSeek={s => videoPlayerRef.current?.seekTo(s * 1000)}
+                    onCommentsChange={setFeedbackCount}
+                    onMarkersChange={setFeedbackMarkers}
+                    onMarkerRangesChange={setFeedbackMarkerRanges}
+                    onAnnotationChange={setAnnotationOverlay}
+                    onStartDraw={(color, tool) => videoPlayerRef.current?.startDraw(color, tool)}
+                    onCaptureDrawStrokes={() => videoPlayerRef.current?.captureDrawStrokes() ?? []}
+                    onSetLineWidth={w => videoPlayerRef.current?.setLineWidth(w)}
+                    onUndoLastStroke={() => videoPlayerRef.current?.undoLastStroke()}
+                    onInitializeDrawStrokes={s => videoPlayerRef.current?.initializeDrawStrokes(s)}
+                    stagedTimecode={stagedMarker ?? undefined}
+                    onStagedTimecodeConsumed={() => setStagedMarker(null)}
+                  />
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-muted)' }}>
+                    <MessageCircle size={32} style={{ margin: '0 auto 12px', display: 'block', opacity: 0.25 }} />
+                    <p style={{ marginBottom: '16px', fontSize: '0.875rem' }}>Sign in to leave feedback</p>
+                    <button className="btn btn-primary" onClick={signIn} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                      Sign in with Google
+                    </button>
+                    {authError && (
+                      <p style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '8px' }}>{authError}</p>
+                    )}
+                  </div>
+                )
               )}
 
               {/* ── Tools tab ────────────────────────────────────────── */}

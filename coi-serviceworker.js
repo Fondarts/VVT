@@ -18,8 +18,8 @@ if (typeof window === 'undefined') {
     if (r.status === 0) return r;
 
     const newHeaders = new Headers(r.headers);
-    newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
-    newHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
+    newHeaders.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    newHeaders.set('Cross-Origin-Embedder-Policy', 'credentialless');
     newHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
     return new Response(r.body, {

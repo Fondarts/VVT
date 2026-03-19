@@ -10,8 +10,8 @@ export default defineConfig({
   server: {
     headers: {
       // Required for SharedArrayBuffer (FFmpeg.wasm multi-thread mode)
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
       // Allow cross-origin workers (e.g. internal @ffmpeg/ffmpeg chunk) to importScripts() our files
       'Cross-Origin-Resource-Policy': 'cross-origin',
     },
