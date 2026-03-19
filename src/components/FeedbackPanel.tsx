@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Check, Trash2, Clock, Pencil, ChevronRight, Type, Eraser, Minus, Plus, Undo2 } from 'lucide-react';
+import { MessageCircle, Check, Trash2, Clock, Pencil, ChevronRight, Type, Eraser, Minus, Plus, Undo2, Reply, Send } from 'lucide-react';
 
 const DRAW_COLORS = ['#FA4900', '#E1FF1C', '#FF3B30', '#FF9F0A', '#34C759', '#0A84FF', '#FFFFFF', '#000000'];
 import type { FeedbackComment, AnnotationStroke } from '../shared/types';
@@ -10,6 +10,7 @@ import {
   deleteComment,
   toggleResolved,
   updateComment,
+  addReply,
 } from '../utils/feedbackStorage';
 
 interface Props {
@@ -83,6 +84,9 @@ export const FeedbackPanel: React.FC<Props> = ({
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  // Reply state
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
   // Strokes received from VideoPlayer when confirming a pending marker
   const [pendingStrokes, setPendingStrokes] = useState<AnnotationStroke[]>([]);
   const [drawLineWidth, setDrawLineWidthLocal] = useState(3);
@@ -223,6 +227,21 @@ export const FeedbackPanel: React.FC<Props> = ({
     setEditingId(null);
     setEditText('');
   };
+
+  const handleAddReply = async (comment: FeedbackComment) => {
+    if (!replyText.trim()) return;
+    await addReply(comment.id, comment.replies ?? [], {
+      author: authorName || 'Anonymous',
+      authorPhoto: authorPhoto,
+      text: replyText.trim(),
+      createdAt: new Date().toISOString(),
+    });
+    setReplyingToId(null);
+    setReplyText('');
+  };
+
+  const isOwn = (comment: FeedbackComment) =>
+    comment.author.trim().toLowerCase() === (authorName || '').trim().toLowerCase();
 
   const handleSeekToComment = (comment: FeedbackComment) => {
     onSeek?.(comment.timecode);
@@ -484,30 +503,48 @@ export const FeedbackPanel: React.FC<Props> = ({
                   </button>
 
                   <button
-                    onClick={() => editingId === comment.id ? handleEditCancel() : handleEditStart(comment)}
-                    title={editingId === comment.id ? 'Cancel edit' : 'Edit comment'}
+                    onClick={() => { setReplyingToId(replyingToId === comment.id ? null : comment.id); setReplyText(''); }}
+                    title="Reply"
                     style={{
-                      background: editingId === comment.id ? 'var(--color-accent)' : 'none',
+                      background: replyingToId === comment.id ? 'var(--color-accent)' : 'none',
                       border: 'none', cursor: 'pointer',
-                      color: editingId === comment.id ? '#000' : 'var(--color-text-muted)',
+                      color: replyingToId === comment.id ? '#000' : 'var(--color-text-muted)',
                       padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0,
                       borderRadius: '3px',
                     }}
                   >
-                    <Pencil size={13} />
+                    <Reply size={13} />
                   </button>
 
-                  <button
-                    onClick={() => handleDelete(comment.id)}
-                    title="Delete comment"
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      color: 'var(--color-text-muted)',
-                      padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0,
-                    }}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  {isOwn(comment) && (
+                    <button
+                      onClick={() => editingId === comment.id ? handleEditCancel() : handleEditStart(comment)}
+                      title={editingId === comment.id ? 'Cancel edit' : 'Edit comment'}
+                      style={{
+                        background: editingId === comment.id ? 'var(--color-accent)' : 'none',
+                        border: 'none', cursor: 'pointer',
+                        color: editingId === comment.id ? '#000' : 'var(--color-text-muted)',
+                        padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0,
+                        borderRadius: '3px',
+                      }}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
+
+                  {isOwn(comment) && (
+                    <button
+                      onClick={() => handleDelete(comment.id)}
+                      title="Delete comment"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--color-text-muted)',
+                        padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0,
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Annotation indicator */}
@@ -548,6 +585,48 @@ export const FeedbackPanel: React.FC<Props> = ({
                   <p style={{ margin: 0, fontSize: '0.8125rem', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
                     {comment.text}
                   </p>
+                )}
+
+                {/* Replies */}
+                {(comment.replies ?? []).length > 0 && (
+                  <div style={{ marginTop: '6px', paddingLeft: '10px', borderLeft: '2px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {(comment.replies ?? []).map((r, i) => (
+                      <div key={i} style={{ fontSize: '0.75rem' }}>
+                        <span style={{ fontWeight: 600 }}>{r.author}</span>
+                        <span style={{ color: 'var(--color-text-muted)', marginLeft: '6px', fontSize: '0.65rem' }}>
+                          {new Date(r.createdAt).toLocaleDateString()}
+                        </span>
+                        <p style={{ margin: '2px 0 0', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{r.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Reply form */}
+                {replyingToId === comment.id && (
+                  <div style={{ marginTop: '6px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Write a reply…"
+                      value={replyText}
+                      onChange={e => setReplyText(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && replyText.trim()) handleAddReply(comment);
+                        if (e.key === 'Escape') { setReplyingToId(null); setReplyText(''); }
+                      }}
+                      autoFocus
+                      style={{ flex: 1, fontSize: '0.75rem' }}
+                    />
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleAddReply(comment)}
+                      disabled={!replyText.trim()}
+                      style={{ padding: '3px 8px', display: 'flex', alignItems: 'center' }}
+                    >
+                      <Send size={11} />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

@@ -19,10 +19,13 @@ import { AnnotationCanvas } from './AnnotationCanvas';
 
 
 const AUTHOR_PALETTE = ['#FA4900', '#7C3AED', '#059669', '#2563EB', '#D97706', '#DB2777', '#0891B2', '#65A30D'];
+const authorColorMap = new Map<string, string>();
 function authorColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return AUTHOR_PALETTE[Math.abs(h) % AUTHOR_PALETTE.length];
+  const key = name.trim().toLowerCase();
+  if (!authorColorMap.has(key)) {
+    authorColorMap.set(key, AUTHOR_PALETTE[authorColorMap.size % AUTHOR_PALETTE.length]);
+  }
+  return authorColorMap.get(key)!;
 }
 function authorInitial(name: string): string {
   return (name || '?').trim()[0].toUpperCase();

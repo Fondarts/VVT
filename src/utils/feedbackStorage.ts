@@ -9,7 +9,7 @@ import {
   doc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { FeedbackComment, AnnotationStroke } from '../shared/types';
+import type { FeedbackComment, FeedbackReply, AnnotationStroke } from '../shared/types';
 
 const COL = 'comments';
 
@@ -88,5 +88,15 @@ export async function updateComment(
   await updateDoc(doc(db, COL, id), {
     text: data.text,
     annotationStrokes: data.annotationStrokes ?? [],
+  });
+}
+
+export async function addReply(
+  commentId: string,
+  currentReplies: FeedbackReply[],
+  reply: FeedbackReply,
+): Promise<void> {
+  await updateDoc(doc(db, COL, commentId), {
+    replies: [...currentReplies, reply],
   });
 }

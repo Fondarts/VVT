@@ -267,6 +267,13 @@ export interface AnnotationStroke {
   fontSize?: number;          // normalized (fraction of height)
 }
 
+export interface FeedbackReply {
+  author: string;
+  authorPhoto?: string;
+  text: string;
+  createdAt: string;         // ISO date string
+}
+
 export interface FeedbackComment {
   id: string;
   fileKey: string;
@@ -277,6 +284,7 @@ export interface FeedbackComment {
   createdAt: string;         // ISO date string
   resolved: boolean;
   annotationStrokes?: AnnotationStroke[];
+  replies?: FeedbackReply[];
 }
 
 export interface AudioLoudness {
