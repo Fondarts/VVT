@@ -48,6 +48,7 @@ import { ThumbnailGrid } from './components/ThumbnailGrid';
 import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { FeedbackPanel } from './components/FeedbackPanel';
+import { SlateCreator } from './components/SlateCreator';
 import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult } from './shared/types';
 
@@ -1044,7 +1045,9 @@ const App: React.FC = () => {
                             <Clapperboard size={14} style={{ color: 'var(--color-accent)' }} />
                             Slate Creator
                           </h3>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)', padding: '2px 8px', borderRadius: '4px' }}>Coming soon</span>
+                        </div>
+                        <div style={{ padding: '12px' }}>
+                          <SlateCreator />
                         </div>
                       </div>
                     </>
