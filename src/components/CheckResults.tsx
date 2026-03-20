@@ -7,6 +7,8 @@ interface CheckResultsProps {
   noPreset?: boolean;
   scanResult?: ScanResult | null;
   presetName?: string;
+  /** Optional element rendered in the header (e.g. preset selector) */
+  headerExtra?: React.ReactNode;
 }
 
 interface RowDef {
@@ -21,7 +23,7 @@ const statusIcon = (status: 'pass' | 'warn' | 'fail') => {
   return <AlertCircle size={14} style={{ color: 'var(--color-error)', flexShrink: 0 }} />;
 };
 
-export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, scanResult, presetName }) => {
+export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, scanResult, presetName, headerExtra }) => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['container', 'video', 'audio']);
 
   const toggle = (key: string) =>
@@ -127,6 +129,7 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
       <div className="card">
         <div className="card-header">
           <h3 className="card-title" style={{ fontSize: '0.875rem' }}>Checks</h3>
+          {headerExtra}
         </div>
         <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
           Select a standard from the dropdown to run validation checks.
@@ -198,7 +201,7 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
 
   return (
     <div className="card">
-      <div className="card-header">
+      <div className="card-header" style={{ flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <h3 className="card-title" style={{ fontSize: '0.875rem' }}>Checks</h3>
           {hasPreset && (() => {
@@ -208,12 +211,13 @@ export const CheckResults: React.FC<CheckResultsProps> = ({ checks, noPreset, sc
             if (hasWarn) return <AlertTriangle size={14} style={{ color: 'var(--color-warning)' }} />;
             return <CheckCircle2 size={14} style={{ color: 'var(--color-success)' }} />;
           })()}
+          {hasPreset && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              {checks.filter(c => c.status === 'pass').length} / {checks.length} passed
+            </span>
+          )}
         </div>
-        {hasPreset && (
-          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-            {checks.filter(c => c.status === 'pass').length} / {checks.length} passed
-          </span>
-        )}
+        {headerExtra}
       </div>
 
       {/* Column header row when a standard is active */}

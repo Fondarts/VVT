@@ -1542,11 +1542,40 @@ export interface ExportBlock {
   slatePng?: Uint8Array;   // required for type 'slate'
 }
 
+export interface ExportCodecConfig {
+  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy';
+  quality: 'high' | 'medium' | 'draft';
+  streamCopy?: boolean;
+}
+
+function codecArgs(cfg: ExportCodecConfig, hasAudio: boolean): { vArgs: string[]; aArgs: string[]; ext: string; pixFmt: string } {
+  const isProRes = cfg.codec.startsWith('prores');
+  if (isProRes) {
+    const profile = cfg.codec === 'prores' ? '3' : cfg.codec === 'prores_lt' ? '2' : '0';
+    return {
+      vArgs: ['-c:v', 'prores_ks', '-profile:v', profile, '-vendor', 'apl0'],
+      aArgs: hasAudio ? ['-c:a', 'pcm_s16le'] : ['-an'],
+      ext: 'mov',
+      pixFmt: 'yuva444p10le',
+    };
+  }
+  // H.264
+  const crf = cfg.quality === 'high' ? '15' : cfg.quality === 'medium' ? '20' : '28';
+  const preset = cfg.quality === 'high' ? 'slow' : cfg.quality === 'medium' ? 'medium' : 'ultrafast';
+  return {
+    vArgs: ['-c:v', 'libx264', '-preset', preset, '-crf', crf],
+    aArgs: hasAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-an'],
+    ext: 'mp4',
+    pixFmt: 'yuv420p',
+  };
+}
+
 export async function exportTimeline(
   videoFile: File,
   blocks: ExportBlock[],
   opts?: {
     onProgress?: (pct: number, label: string) => void;
+    codec?: ExportCodecConfig;
   },
 ): Promise<string> {
   const ff = await loadFFmpeg();
@@ -1582,6 +1611,10 @@ export async function exportTimeline(
     if (/Audio:/.test(line)) hasAudio = true;
   }
 
+  const cfg = opts?.codec ?? { codec: 'h264', quality: 'medium' };
+  const enc = codecArgs(cfg, hasAudio);
+  const clipExt = enc.ext;
+
   const clipFiles: string[] = [];
   const allTempFiles: string[] = [inputName];
 
@@ -1591,7 +1624,7 @@ export async function exportTimeline(
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    const clipName = `clip_${i}.mp4`;
+    const clipName = `clip_${i}.${clipExt}`;
     clipFiles.push(clipName);
     allTempFiles.push(clipName);
 
@@ -1611,12 +1644,11 @@ export async function exportTimeline(
         '-framerate', String(fps),
         '-i', slatePngName,
         '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
+        ...enc.vArgs,
         '-t', String(block.duration),
         '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac', '-b:a', '128k',
+        '-pix_fmt', enc.pixFmt,
+        ...enc.aArgs,
         '-shortest',
         '-y', clipName,
       ]);
@@ -1628,11 +1660,10 @@ export async function exportTimeline(
         '-threads', '1',
         '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}:d=${block.duration}`,
         '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=stereo`,
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
+        ...enc.vArgs,
         '-t', String(block.duration),
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'aac', '-b:a', '128k',
+        '-pix_fmt', enc.pixFmt,
+        ...enc.aArgs,
         '-shortest',
         '-y', clipName,
       ]);
@@ -1647,17 +1678,26 @@ export async function exportTimeline(
       };
       ff.on('progress', progressHandler);
       try {
-        await ff.exec([
-          '-threads', '1',
-          '-i', inputName,
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-crf', '18',
-          '-pix_fmt', 'yuv420p',
-          ...(hasAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-an']),
-          '-movflags', '+faststart',
-          '-y', clipName,
-        ]);
+        if (cfg.streamCopy) {
+          // Stream copy — no re-encode, fast
+          await ff.exec([
+            '-threads', '1',
+            '-i', inputName,
+            '-c', 'copy',
+            '-movflags', '+faststart',
+            '-y', clipName,
+          ]);
+        } else {
+          await ff.exec([
+            '-threads', '1',
+            '-i', inputName,
+            ...enc.vArgs,
+            '-pix_fmt', enc.pixFmt,
+            ...enc.aArgs,
+            ...(cfg.codec === 'h264' ? ['-movflags', '+faststart'] : []),
+            '-y', clipName,
+          ]);
+        }
       } finally {
         ff.off('progress', progressHandler);
       }
@@ -1671,7 +1711,7 @@ export async function exportTimeline(
   await ff.writeFile('concat.txt', new TextEncoder().encode(concatContent));
   allTempFiles.push('concat.txt');
 
-  const outputName = 'timeline_output.mp4';
+  const outputName = `timeline_output.${clipExt}`;
   allTempFiles.push(outputName);
 
   await ff.exec([
@@ -1680,14 +1720,15 @@ export async function exportTimeline(
     '-safe', '0',
     '-i', 'concat.txt',
     '-c', 'copy',
-    '-movflags', '+faststart',
+    ...(cfg.codec === 'h264' ? ['-movflags', '+faststart'] : []),
     '-y', outputName,
   ]);
 
   opts?.onProgress?.(95, 'Reading output…');
 
   const data = await ff.readFile(outputName);
-  const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: 'video/mp4' });
+  const mimeType = cfg.codec.startsWith('prores') ? 'video/quicktime' : 'video/mp4';
+  const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: mimeType });
   const url = URL.createObjectURL(blob);
 
   // Cleanup

@@ -15,6 +15,8 @@ import {
   Clapperboard,
   LogOut,
   MessageCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import type {
@@ -49,10 +51,12 @@ import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { FeedbackPanel } from './components/FeedbackPanel';
 import { SlateCreator } from './components/SlateCreator';
-import { EditTimeline, blockId } from './components/EditTimeline';
+import { blockId } from './components/EditTimeline';
+import { ExportModal } from './components/ExportModal';
+import type { ExportSettings } from './components/ExportModal';
 import type { TimelineBlock, TimelinePreview } from './components/EditTimeline';
 import { exportTimeline } from './api/ffmpeg';
-import type { ExportBlock } from './api/ffmpeg';
+import type { ExportBlock, ExportCodecConfig } from './api/ffmpeg';
 import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult } from './shared/types';
 
@@ -102,6 +106,29 @@ const makeDefaultRules = (): Record<string, RuleState> =>
 
 interface CustomPresetForm { name: string; rules: Record<string, RuleState>; }
 const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
+
+const SlateCreatorCollapsible: React.FC<{ videoFile: File | null; onAddSlateBlock: (block: import('./components/EditTimeline').TimelineBlock) => void; forceOpen?: number }> = ({ videoFile, onAddSlateBlock, forceOpen }) => {
+  const [collapsed, setCollapsed] = useState(true);
+  React.useEffect(() => { if (forceOpen) setCollapsed(false); }, [forceOpen]);
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3 className="card-title" style={{ fontSize: '0.875rem' }}>
+          <Clapperboard size={14} style={{ marginRight: '8px', display: 'inline' }} />
+          Slate Creator
+        </h3>
+        <button className="btn btn-icon btn-sm" onClick={() => setCollapsed(c => !c)}>
+          {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ padding: '12px' }}>
+          <SlateCreator videoFile={videoFile} onAddSlateBlock={onAddSlateBlock} />
+        </div>
+      )}
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
@@ -162,12 +189,14 @@ const App: React.FC = () => {
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'specs' | 'feedback' | 'tools'>('feedback');
+  const [slateForceOpen, setSlateForceOpen] = useState(0);
 
   // ── Edit timeline state ──
   const [timelineBlocks, setTimelineBlocks] = useState<TimelineBlock[]>([]);
   const [tlExporting, setTlExporting] = useState(false);
   const [tlExportPct, setTlExportPct] = useState(0);
-  const [tlExportLabel, setTlExportLabel] = useState('');
+  const [, setTlExportLabel] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
   const [tlPreview, setTlPreview] = useState<TimelinePreview | null>(null);
   // Unified timeline playback
   const [tlGlobalTime, setTlGlobalTime] = useState(0);
@@ -439,22 +468,38 @@ const App: React.FC = () => {
     });
   }, [scanResult, selectedFile]);
 
-  const handleTimelinePreview = useCallback((preview: TimelinePreview | null) => {
-    setTlPreview(preview);
-    if (preview?.blockType === 'video' && preview.videoOffset !== undefined) {
-      const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
-      if (el) {
-        el.currentTime = preview.videoOffset;
-      }
-    }
-  }, [videoEl]);
-
-  const handleTimelineExport = useCallback(async () => {
+  const handleTimelineExport = useCallback(async (settings?: ExportSettings) => {
     if (!selectedFile || timelineBlocks.length < 2 || tlExporting) return;
+    setShowExportModal(false);
     setTlExporting(true);
     setTlExportPct(0);
     setTlExportLabel('Starting…');
+
+    const codecCfg: ExportCodecConfig = settings
+      ? { codec: settings.codec, quality: settings.quality, streamCopy: settings.streamCopy }
+      : { codec: 'h264', quality: 'medium' };
+    const ext = codecCfg.codec.startsWith('prores') ? 'mov' : 'mp4';
+
     try {
+      // ── Native export via helper ──
+      if (settings?.useNative) {
+        const { runNativeExport } = await import('./api/helperClient');
+        const blocksForNative = timelineBlocks.map(b => ({
+          type: b.type,
+          duration: b.duration,
+          slatePng: b.slatePng,
+        }));
+        const outputPath = await runNativeExport(
+          selectedFile,
+          blocksForNative,
+          { codec: codecCfg.codec, quality: codecCfg.quality, streamCopy: codecCfg.streamCopy },
+          (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
+        );
+        setTlExportLabel(`Saved to ${outputPath}`);
+        return;
+      }
+
+      // ── Browser WASM export ──
       const exportBlocks: ExportBlock[] = timelineBlocks.map(b => ({
         type: b.type,
         duration: b.duration,
@@ -462,9 +507,10 @@ const App: React.FC = () => {
       }));
       const url = await exportTimeline(selectedFile, exportBlocks, {
         onProgress: (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
+        codec: codecCfg,
       });
       const a = document.createElement('a');
-      a.download = `${selectedFile.name.replace(/\.[^.]+$/, '')}_edit.mp4`;
+      a.download = `${selectedFile.name.replace(/\.[^.]+$/, '')}_edit.${ext}`;
       a.href = url;
       a.click();
       URL.revokeObjectURL(url);
@@ -475,6 +521,16 @@ const App: React.FC = () => {
       setTlExporting(false);
     }
   }, [selectedFile, timelineBlocks, tlExporting]);
+
+  // ── Auto-clear timeline if only video block remains ──
+  useEffect(() => {
+    if (timelineBlocks.length === 1 && timelineBlocks[0].type === 'video') {
+      setTimelineBlocks([]);
+      setTlGlobalTime(0);
+      setTlIsPlaying(false);
+      setTlPreview(null);
+    }
+  }, [timelineBlocks]);
 
   // ── Compute timeline block ranges (memoized) ──
   const tlRanges = React.useMemo(() => {
@@ -496,30 +552,34 @@ const App: React.FC = () => {
     return tlRanges.ranges.find(r => t >= r.start && t < r.end) ?? tlRanges.ranges[tlRanges.ranges.length - 1];
   }, [tlRanges]);
 
-  // ── Sync preview overlay + video element based on tlGlobalTime ──
-  useEffect(() => {
-    if (!tlRanges) { setTlPreview(null); return; }
-    const block = resolveBlockAt(tlGlobalTime);
-    if (!block) return;
+  // ── Which block is the playhead in? ──
+  const tlCurrentBlock = resolveBlockAt(tlGlobalTime);
 
-    if (block.type === 'video') {
+  // ── Sync preview overlay based on current block ──
+  useEffect(() => {
+    if (!tlRanges || !tlCurrentBlock) { setTlPreview(null); return; }
+
+    if (tlCurrentBlock.type === 'video') {
       setTlPreview(null);
-      const videoOffset = tlGlobalTime - block.start;
-      if (videoEl && Math.abs(videoEl.currentTime - videoOffset) > 0.3) {
-        videoEl.currentTime = videoOffset;
-      }
-    } else if (block.type === 'slate') {
-      setTlPreview({ blockType: 'slate', thumbnail: block.thumbnail });
-      if (videoEl && !videoEl.paused) videoEl.pause();
+    } else if (tlCurrentBlock.type === 'slate') {
+      setTlPreview({ blockType: 'slate', thumbnail: tlCurrentBlock.thumbnail });
     } else {
       setTlPreview({ blockType: 'black' });
-      if (videoEl && !videoEl.paused) videoEl.pause();
     }
-  }, [tlGlobalTime, tlRanges, resolveBlockAt, videoEl]);
+  }, [tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges]);
 
-  // ── Animation loop for timeline playback ──
+  // ── Playback engine ──
+  // Non-video blocks: rAF advances tlGlobalTime until block ends, then transitions.
+  // Video block: video element plays natively; onTimeUpdate syncs tlGlobalTime.
+  // This avoids two loops fighting each other.
+
+  // rAF loop — only runs during non-video blocks
   useEffect(() => {
-    if (!tlIsPlaying || !tlRanges) return;
+    if (!tlIsPlaying || !tlRanges || !tlCurrentBlock) return;
+    if (tlCurrentBlock.type === 'video') return; // video element drives time
+
+    // Pause video if it's playing
+    if (videoEl && !videoEl.paused) videoEl.pause();
 
     tlLastFrameRef.current = performance.now();
 
@@ -531,9 +591,7 @@ const App: React.FC = () => {
       setTlGlobalTime(prev => {
         const next = prev + dt;
         if (next >= tlRanges.totalDuration) {
-          // Reached end — stop playback
           setTlIsPlaying(false);
-          if (videoEl && !videoEl.paused) videoEl.pause();
           return tlRanges.totalDuration;
         }
         return next;
@@ -542,26 +600,31 @@ const App: React.FC = () => {
       tlAnimRef.current = requestAnimationFrame(tick);
     };
 
-    // If we're entering a video block, make sure the video is playing
-    const block = resolveBlockAt(tlGlobalTime);
-    if (block?.type === 'video' && videoEl?.paused) {
-      videoEl.play().catch(() => {});
-    }
-
     tlAnimRef.current = requestAnimationFrame(tick);
-
     return () => cancelAnimationFrame(tlAnimRef.current);
-  }, [tlIsPlaying, tlRanges, resolveBlockAt, videoEl]);
+  }, [tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges, videoEl]);
 
-  // ── When video element time updates during playback, sync global time ──
+  // Video block playback — start/stop video element
   useEffect(() => {
-    if (!tlIsPlaying || !tlRanges) return;
-    const block = resolveBlockAt(tlGlobalTime);
-    if (block?.type === 'video' && videoEl) {
-      // video is the source of truth when playing in a video block
-      const globalFromVideo = block.start + videoEl.currentTime;
-      setTlGlobalTime(globalFromVideo);
+    if (!tlIsPlaying || !tlRanges || !tlCurrentBlock || !videoEl) return;
+    if (tlCurrentBlock.type !== 'video') return;
+
+    // Sync video position and play
+    const videoOffset = tlGlobalTime - tlCurrentBlock.start;
+    if (Math.abs(videoEl.currentTime - videoOffset) > 0.3) {
+      videoEl.currentTime = videoOffset;
     }
+    if (videoEl.paused) videoEl.play().catch(() => {});
+
+    return () => {
+      // Don't pause here — let the block transition handle it
+    };
+  }, [tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges, videoEl]);
+
+  // Video timeupdate → sync tlGlobalTime (video is source of truth)
+  useEffect(() => {
+    if (!tlIsPlaying || !tlCurrentBlock || tlCurrentBlock.type !== 'video') return;
+    setTlGlobalTime(tlCurrentBlock.start + videoCurrentTime);
   }, [videoCurrentTime]);
 
   // ── Timeline play/pause/seek handlers ──
@@ -593,6 +656,66 @@ const App: React.FC = () => {
       videoEl.currentTime = clamped - block.start;
     }
   }, [tlRanges, resolveBlockAt, videoEl]);
+
+  // ── Add block helpers: auto-create video block if timeline is empty ──
+  const ensureVideoBlock = useCallback((addBlock: TimelineBlock): TimelineBlock[] => {
+    const videoDur = scanResult?.file?.duration ?? 30;
+    const videoBlock: TimelineBlock = {
+      id: blockId(),
+      type: 'video',
+      duration: videoDur,
+      label: selectedFile?.name ?? 'Video',
+    };
+    return [videoBlock, addBlock];
+  }, [scanResult, selectedFile]);
+
+  const handleTlAddBlack = useCallback((dur: number) => {
+    const newBlock: TimelineBlock = { id: blockId(), type: 'black', duration: dur, label: 'Black' };
+    setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
+  }, [ensureVideoBlock]);
+
+  const handleTlAddImage = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          c.getContext('2d')!.drawImage(img, 0, 0);
+          c.toBlob(blob => {
+            if (!blob) return;
+            blob.arrayBuffer().then(buf => {
+              const newBlock: TimelineBlock = {
+                id: blockId(),
+                type: 'slate' as const,
+                duration: 5,
+                label: file.name.replace(/\.[^.]+$/, ''),
+                thumbnail: dataUrl,
+                slatePng: new Uint8Array(buf),
+              };
+              setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
+            });
+          }, 'image/png');
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }, [ensureVideoBlock]);
+
+  const handleTlAddBip = useCallback(() => {
+    const newBlock: TimelineBlock = { id: blockId(), type: 'black', duration: 1, label: 'Bip' };
+    setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
+  }, [ensureVideoBlock]);
 
   const handleSnapshot = useCallback(async (_time: number) => {
     const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
@@ -785,6 +908,13 @@ const App: React.FC = () => {
   return (
     <div className="app">
       <BrandBackground />
+      {showExportModal && (
+        <ExportModal
+          onExport={handleTimelineExport}
+          onClose={() => setShowExportModal(false)}
+          inputCodec={scanResult?.video?.codec}
+        />
+      )}
       <header className="app-header">
         <div className="logo">
           <img src="/icons/kissd-logo.svg" alt="KISSD" style={{ height: '22px', width: 'auto', display: 'block' }} />
@@ -818,49 +948,6 @@ const App: React.FC = () => {
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
-          )}
-          {/* Preset selector — visible in both modes */}
-          <select
-            className="select"
-            value={selectedPreset}
-            onChange={e => handlePresetChange(e.target.value)}
-          >
-            <option value="">— Select specs —</option>
-            <optgroup label="Built-in Presets">
-              {validationPresets.map(preset => (
-                <option key={preset.id} value={preset.id}>{preset.name}</option>
-              ))}
-            </optgroup>
-            {customPresets.length > 0 && (
-              <optgroup label="Custom Presets">
-                {customPresets.map(preset => (
-                  <option key={preset.id} value={preset.id}>{preset.name}</option>
-                ))}
-              </optgroup>
-            )}
-            <option value="__add_custom__">+ Add custom preset...</option>
-          </select>
-
-          {selectedPreset && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => openEditPreset(selectedPreset)}
-              title="Edit preset"
-              style={{ padding: '6px 10px' }}
-            >
-              <Pencil size={14} />
-            </button>
-          )}
-
-          {selectedPreset && customPresets.some(p => p.id === selectedPreset) && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => deleteCustomPreset(selectedPreset)}
-              title="Delete preset"
-              style={{ padding: '6px 10px', color: 'var(--color-error)' }}
-            >
-              <Trash2 size={14} />
-            </button>
           )}
 
           {/* Single mode: file picker + scan button */}
@@ -973,23 +1060,7 @@ const App: React.FC = () => {
                   onPlaceMarker={handleImagePlaceMarker}
                 />
               ) : (
-                <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-                {/* Timeline preview overlay — only covers player area */}
-                {tlPreview && tlPreview.blockType !== 'video' && (
-                  <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    zIndex: 50,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: '#000',
-                  }}>
-                    {tlPreview.blockType === 'slate' && tlPreview.thumbnail && (
-                      <img src={tlPreview.thumbnail} alt="Slate preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                    )}
-                  </div>
-                )}
+                <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden' }}>
                 <VideoPlayer
                   ref={videoPlayerRef}
                   videoSrc={videoSrc}
@@ -1012,28 +1083,40 @@ const App: React.FC = () => {
                   onSnapshot={handleSnapshot}
                   onTimeUpdate={setVideoCurrentTime}
                   onVideoReady={setVideoEl}
+                  timelineOverlay={tlPreview && tlPreview.blockType !== 'video' ? { type: tlPreview.blockType, thumbnail: tlPreview.thumbnail } : null}
+                  onAddBlack={handleTlAddBlack}
+                  onAddImage={handleTlAddImage}
+                  onAddBip={handleTlAddBip}
+                  onAddSlate={() => { setActiveRightTab('tools'); setSlateForceOpen(n => n + 1); }}
+                  onExportTimeline={() => setShowExportModal(true)}
+                  exportingTimeline={tlExporting}
+                  exportTimelinePct={tlExportPct}
+                  timeline={tlRanges ? {
+                    blocks: timelineBlocks,
+                    globalTime: tlGlobalTime,
+                    totalDuration: tlRanges.totalDuration,
+                    isPlaying: tlIsPlaying,
+                    onPlayPause: handleTlPlayPause,
+                    onSeek: handleTlSeek,
+                    onReorder: (from: number, to: number) => {
+                      setTimelineBlocks(prev => {
+                        const next = [...prev];
+                        const [moved] = next.splice(from, 1);
+                        next.splice(to, 0, moved);
+                        return next;
+                      });
+                    },
+                    onUpdateDuration: (id: string, dur: number) => {
+                      setTimelineBlocks(prev => prev.map(b => b.id === id ? { ...b, duration: Math.max(0.5, dur) } : b));
+                    },
+                    onRemoveBlock: (id: string) => {
+                      setTimelineBlocks(prev => prev.filter(b => b.id !== id));
+                    },
+                  } : undefined}
                 />
                 </div>
               )}
 
-              {!isImage && timelineBlocks.length > 0 && (
-                <div style={{ flexShrink: 0 }}>
-                <EditTimeline
-                  blocks={timelineBlocks}
-                  onChange={setTimelineBlocks}
-                  onExport={handleTimelineExport}
-                  exporting={tlExporting}
-                  exportPct={tlExportPct}
-                  exportLabel={tlExportLabel}
-                  videoDuration={scanResult?.file?.duration ?? 0}
-                  onPreview={handleTimelinePreview}
-                  globalTime={tlGlobalTime}
-                  isPlaying={tlIsPlaying}
-                  onPlayPause={handleTlPlayPause}
-                  onSeek={handleTlSeek}
-                />
-                </div>
-              )}
 
               {!isImage && scanResult && waveformData.length > 0 && (
                 <div style={{ flexShrink: 0 }}>
@@ -1154,6 +1237,41 @@ const App: React.FC = () => {
                         noPreset={!selectedPreset}
                         scanResult={scanResult}
                         presetName={allPresets.find(p => p.id === selectedPreset)?.name}
+                        headerExtra={
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <select
+                              className="select"
+                              value={selectedPreset}
+                              onChange={e => handlePresetChange(e.target.value)}
+                              style={{ fontSize: '0.75rem', padding: '3px 6px' }}
+                            >
+                              <option value="">— Select specs —</option>
+                              <optgroup label="Built-in Presets">
+                                {validationPresets.map(preset => (
+                                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                ))}
+                              </optgroup>
+                              {customPresets.length > 0 && (
+                                <optgroup label="Custom Presets">
+                                  {customPresets.map(preset => (
+                                    <option key={preset.id} value={preset.id}>{preset.name}</option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              <option value="__add_custom__">+ Add custom preset...</option>
+                            </select>
+                            {selectedPreset && (
+                              <button className="btn btn-secondary btn-sm" onClick={() => openEditPreset(selectedPreset)} title="Edit preset" style={{ padding: '3px 6px' }}>
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                            {selectedPreset && customPresets.some(p => p.id === selectedPreset) && (
+                              <button className="btn btn-secondary btn-sm" onClick={() => deleteCustomPreset(selectedPreset)} title="Delete preset" style={{ padding: '3px 6px', color: 'var(--color-error)' }}>
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
+                        }
                       />
 
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1277,17 +1395,7 @@ const App: React.FC = () => {
                       {thumbnails.length > 0 && (
                         <ThumbnailGrid thumbnails={thumbnails} />
                       )}
-                      <div className="card">
-                        <div className="card-header">
-                          <h3 className="card-title" style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Clapperboard size={14} style={{ color: 'var(--color-accent)' }} />
-                            Slate Creator
-                          </h3>
-                        </div>
-                        <div style={{ padding: '12px' }}>
-                          <SlateCreator videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} />
-                        </div>
-                      </div>
+                      <SlateCreatorCollapsible videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} forceOpen={slateForceOpen > 0 ? slateForceOpen : undefined} />
                     </>
                   ) : (
                     <div style={{

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic, Copy, Check, FileDown, AlertCircle,
-  ChevronDown, ChevronUp, Play, Loader2,
+  ChevronDown, ChevronUp, Play, Loader2, Settings, Download, CheckCircle2,
 } from 'lucide-react';
 import type { TranscriptionResult } from '../shared/types';
 import { exportSRT } from '../api/ffmpeg';
@@ -72,6 +72,7 @@ export const TranscriptionPanel: React.FC<Props> = ({
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [cachedModels, setCachedModels] = useState<Partial<Record<WhisperModel, boolean>>>({});
+  const [showSettings, setShowSettings] = useState(false);
 
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const tcEditRef   = useRef<HTMLInputElement>(null);
@@ -231,34 +232,73 @@ export const TranscriptionPanel: React.FC<Props> = ({
             </span>
           )}
         </div>
-        <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}>
-          {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setShowSettings(s => !s); }} title="Model settings">
+            <Settings size={13} style={{ color: showSettings ? 'var(--color-accent)' : 'var(--color-text-muted)' }} />
+          </button>
+          <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}>
+            {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+        </div>
       </div>
 
       {!collapsed && <div className="card-content">
 
-      {/* Controls — shown when no result yet OR always for re-transcription */}
+      {/* ── Settings panel ── */}
+      {showSettings && (
+        <div style={{ marginBottom: '10px', padding: '10px', background: 'var(--color-bg-tertiary)', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Settings size={12} /> Model Settings
+          </div>
+          {WHISPER_MODELS.map(m => {
+            const isCached = cachedModels[m.id] === true;
+            const isActive = selectedModel === m.id;
+            return (
+              <div key={m.id} style={{
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '6px 8px', borderRadius: '4px',
+                background: isActive ? 'rgba(124,58,237,0.15)' : 'transparent',
+                border: isActive ? '1px solid rgba(124,58,237,0.4)' : '1px solid transparent',
+              }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, flex: 1 }}>{m.label}</span>
+                <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>{m.size}</span>
+                {isCached ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', color: 'var(--color-success)' }}>
+                    <CheckCircle2 size={11} /> Cached
+                  </span>
+                ) : (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
+                    <Download size={11} /> Not cached
+                  </span>
+                )}
+                {!isActive && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSelectedModel(m.id)}
+                    style={{ fontSize: '0.62rem', padding: '2px 6px' }}
+                  >
+                    Use
+                  </button>
+                )}
+                {isActive && (
+                  <span style={{ fontSize: '0.62rem', color: 'var(--color-accent)', fontWeight: 700 }}>Active</span>
+                )}
+              </div>
+            );
+          })}
+          <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: 0 }}>
+            Models are downloaded automatically on first use and cached for future sessions.
+          </p>
+        </div>
+      )}
+
+      {/* Controls — shown when no result yet */}
       {!result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {videoFile ? (
             <>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: '1', minWidth: '130px' }}>
-                  <label style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Model</label>
-                  <select
-                    value={selectedModel}
-                    onChange={e => setSelectedModel(e.target.value as WhisperModel)}
-                    disabled={transcribing}
-                    style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-text-primary)', fontSize: '0.78rem', padding: '4px 6px' }}
-                  >
-                    {WHISPER_MODELS.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.label} ({m.size}){cachedModels[m.id] === true ? ' ✓' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Compact: language + transcribe (model shown in active label) */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: '1', minWidth: '110px' }}>
                   <label style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Language</label>
                   <select
@@ -272,19 +312,24 @@ export const TranscriptionPanel: React.FC<Props> = ({
                     ))}
                   </select>
                 </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleTranscribe}
+                  disabled={transcribing}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '5px 14px' }}
+                >
+                  {transcribing
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />{transcribeStatus || 'Working…'}</>
+                    : <><Play size={14} />Transcribe</>
+                  }
+                </button>
               </div>
 
-              <button
-                className="btn btn-primary"
-                onClick={handleTranscribe}
-                disabled={transcribing}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center', fontSize: '0.82rem' }}
-              >
-                {transcribing
-                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />{transcribeStatus || 'Working…'}</>
-                  : <><Play size={14} />Transcribe Audio</>
-                }
-              </button>
+              {/* Using model label */}
+              <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                Using: {WHISPER_MODELS.find(m => m.id === selectedModel)?.label}
+                {cachedModels[selectedModel] ? ' ✓' : ` (${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} download)`}
+              </p>
 
               {transcribing && transcribeStatus.includes('Downloading') && (
                 <div>
@@ -302,15 +347,6 @@ export const TranscriptionPanel: React.FC<Props> = ({
                   <AlertCircle size={13} style={{ color: '#ef4444', flexShrink: 0, marginTop: '1px' }} />
                   <span style={{ fontSize: '0.73rem', color: '#ef4444' }}>{transcribeError}</span>
                 </div>
-              )}
-
-              {!transcribing && !transcribeError && (
-                <p style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                  {cachedModels[selectedModel]
-                    ? '✓ Model cached — ready to transcribe.'
-                    : `First run downloads ${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} — cached for future sessions.`
-                  }
-                </p>
               )}
             </>
           ) : (

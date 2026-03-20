@@ -21,7 +21,7 @@ function dBToLinear(dB: number): number {
   return Math.pow(10, dB / 20);
 }
 
-const WAVEFORM_HEIGHT = 80;
+const WAVEFORM_HEIGHT = 50;
 const VU_WIDTH = 52;
 
 export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, currentTime, videoEl, truePeakMax, defaultCollapsed }) => {

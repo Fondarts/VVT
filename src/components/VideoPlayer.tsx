@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Play,
   Pause,
@@ -12,6 +12,7 @@ import {
   Subtitles,
   Loader2,
   X,
+  Film,
 } from 'lucide-react';
 import { overlayPresets } from '../shared/presets';
 import type { TranscriptionSegment, AnnotationStroke } from '../shared/types';
@@ -30,6 +31,12 @@ function authorColor(name: string): string {
 function authorInitial(name: string): string {
   return (name || '?').trim()[0].toUpperCase();
 }
+
+const TL_BLOCK_COLORS: Record<string, string> = {
+  slate: '#7C3AED',
+  video: '#2563EB',
+  black: '#444444',
+};
 
 interface VideoPlayerProps {
   videoSrc: string;        // Blob URL — updated by parent when transcode is done
@@ -53,6 +60,28 @@ interface VideoPlayerProps {
   onSnapshot?: (time: number) => void;
   onTimeUpdate?: (time: number) => void;
   onVideoReady?: (el: HTMLVideoElement) => void;
+  /** Overlay to show instead of video (slate image or black) */
+  timelineOverlay?: { type: 'slate' | 'black'; thumbnail?: string } | null;
+  /** Always-visible edit buttons */
+  onAddBlack?: (duration: number) => void;
+  onAddImage?: () => void;
+  onAddBip?: () => void;
+  onAddSlate?: () => void;
+  onExportTimeline?: () => void;
+  exportingTimeline?: boolean;
+  exportTimelinePct?: number;
+  /** Timeline integration — when set, scrubber & controls use timeline instead of raw video */
+  timeline?: {
+    blocks: { id: string; type: 'slate' | 'video' | 'black'; duration: number; label: string }[];
+    globalTime: number;
+    totalDuration: number;
+    isPlaying: boolean;
+    onPlayPause: () => void;
+    onSeek: (time: number) => void;
+    onReorder: (fromIdx: number, toIdx: number) => void;
+    onUpdateDuration: (id: string, duration: number) => void;
+    onRemoveBlock: (id: string) => void;
+  };
 }
 
 export interface VideoPlayerHandle {
@@ -64,6 +93,141 @@ export interface VideoPlayerHandle {
   undoLastStroke: () => void;
   initializeDrawStrokes: (strokes: AnnotationStroke[]) => void;
 }
+
+/* ── Timeline block bar: drag-to-reorder + double-click to edit duration ── */
+const TlBlockBar: React.FC<{ tl: NonNullable<VideoPlayerProps['timeline']> }> = ({ tl }) => {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editVal, setEditVal] = useState('');
+  const editRef = useRef<HTMLInputElement>(null);
+  const droppedOnBar = useRef(false);
+
+  useEffect(() => {
+    if (editId && editRef.current) editRef.current.focus();
+  }, [editId]);
+
+  const handleDragStart = (e: React.DragEvent, idx: number) => {
+    setDragIdx(idx);
+    droppedOnBar.current = false;
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropIdx(idx);
+  };
+  const handleDrop = (e: React.DragEvent, toIdx: number) => {
+    e.preventDefault();
+    droppedOnBar.current = true;
+    if (dragIdx !== null && dragIdx !== toIdx) tl.onReorder(dragIdx, toIdx);
+    setDragIdx(null);
+    setDropIdx(null);
+  };
+  const handleDragEnd = () => {
+    // If not dropped on the bar → remove (but not video blocks)
+    if (!droppedOnBar.current && dragIdx !== null) {
+      const block = tl.blocks[dragIdx];
+      if (block && block.type !== 'video') {
+        tl.onRemoveBlock(block.id);
+      }
+    }
+    setDragIdx(null);
+    setDropIdx(null);
+  };
+
+  const handleDblClick = (b: typeof tl.blocks[0]) => {
+    if (b.type === 'video') return; // can't edit video duration
+    setEditId(b.id);
+    setEditVal(String(b.duration));
+  };
+  const commitEdit = () => {
+    if (editId) {
+      const dur = parseFloat(editVal);
+      if (dur > 0) tl.onUpdateDuration(editId, dur);
+      setEditId(null);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'absolute', top: 26, left: 0, right: 0, height: '25px',
+      display: 'flex', borderRadius: '4px', overflow: 'visible', zIndex: 2,
+    }}>
+      {tl.blocks.map((b, i) => {
+        const pct = (b.duration / tl.totalDuration) * 100;
+        const label = b.type === 'video' ? 'Video' : b.type === 'slate' ? 'Slate' : 'Black';
+        const isDragging = dragIdx === i;
+        const isDropTarget = dropIdx === i && dragIdx !== null && dragIdx !== i;
+        return (
+          <div
+            key={b.id}
+            draggable
+            onDragStart={e => handleDragStart(e, i)}
+            onDragOver={e => handleDragOver(e, i)}
+            onDrop={e => handleDrop(e, i)}
+            onDragEnd={handleDragEnd}
+            onDoubleClick={() => handleDblClick(b)}
+            title={b.type === 'video' ? `${label} ${b.duration.toFixed(1)}s` : `${label} ${b.duration.toFixed(1)}s — double-click to edit duration`}
+            style={{
+              width: `${pct}%`,
+              minWidth: '4px',
+              background: TL_BLOCK_COLORS[b.type] || '#555',
+              borderRight: i < tl.blocks.length - 1 ? '1px solid rgba(0,0,0,0.4)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              fontSize: '0.58rem',
+              fontWeight: 600,
+              color: '#fff',
+              gap: '3px',
+              cursor: 'grab',
+              opacity: isDragging ? 0.4 : 1,
+              outline: isDropTarget ? '2px solid var(--color-accent)' : 'none',
+              outlineOffset: '-2px',
+              transition: 'opacity 0.15s',
+              borderRadius: i === 0 ? '4px 0 0 4px' : i === tl.blocks.length - 1 ? '0 4px 4px 0' : '0',
+              position: 'relative',
+            }}
+          >
+            {editId === b.id ? (
+              <input
+                ref={editRef}
+                value={editVal}
+                onChange={e => setEditVal(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') commitEdit();
+                  if (e.key === 'Escape') setEditId(null);
+                }}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  width: '40px',
+                  fontSize: '0.6rem',
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  background: 'rgba(0,0,0,0.5)',
+                  color: '#fff',
+                  border: '1px solid var(--color-accent)',
+                  borderRadius: '3px',
+                  padding: '1px 3px',
+                  outline: 'none',
+                }}
+              />
+            ) : (
+              <>
+                {pct > 5 && <span style={{ pointerEvents: 'none' }}>{label}</span>}
+                {pct > 8 && <span style={{ opacity: 0.7, pointerEvents: 'none' }}>{b.duration.toFixed(1)}s</span>}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   videoSrc,
@@ -87,6 +251,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   onSnapshot,
   onTimeUpdate,
   onVideoReady,
+  timelineOverlay: tlOverlay,
+  onAddBlack: propAddBlack,
+  onAddImage: propAddImage,
+  onAddBip: propAddBip,
+  onAddSlate: propAddSlate,
+  onExportTimeline: propExport,
+  exportingTimeline: propExporting,
+  exportTimelinePct: propExportPct,
+  timeline: tl,
 }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -656,8 +829,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
           ref={videoRef}
           src={isTranscoding ? undefined : videoSrc}
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-          onClick={togglePlay}
+          onClick={tl ? tl.onPlayPause : togglePlay}
         />
+        {/* Timeline overlay (slate/black) */}
+        {tlOverlay && (
+          <div
+            onClick={tl ? tl.onPlayPause : togglePlay}
+            style={{
+              position: 'absolute', inset: 0, zIndex: 2,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: '#000', cursor: 'pointer',
+            }}
+          >
+            {tlOverlay.type === 'slate' && tlOverlay.thumbnail && (
+              <img src={tlOverlay.thumbnail} alt="Slate" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            )}
+          </div>
+        )}
         {isTranscoding && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -768,19 +956,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       {/* Timeline scrubber */}
       <div style={{ padding: '10px 12px 0', borderTop: '1px solid var(--border-color)', background: 'var(--color-bg-primary)' }}>
         <div ref={timelineWrapRef} onDoubleClick={e => e.preventDefault()} style={{ position: 'relative', paddingBottom: '16px' }}>
+          {/* Block segments — draggable + double-click to edit duration */}
+          {tl && (
+            <TlBlockBar tl={tl} />
+          )}
           <input
             ref={rangeRef}
             type="range"
             min={0}
-            max={duration || 1}
+            max={tl ? tl.totalDuration : (duration || 1)}
             step={frameRate ? 1 / frameRate : 0.04}
-            defaultValue={0}
+            value={tl ? tl.globalTime : currentTime}
             onChange={e => {
               const t = parseFloat(e.target.value);
-              if (videoRef.current) videoRef.current.currentTime = t;
-              setCurrentTime(t);
+              if (tl) {
+                tl.onSeek(t);
+              } else {
+                if (videoRef.current) videoRef.current.currentTime = t;
+                setCurrentTime(t);
+              }
             }}
-            style={{ width: '100%', cursor: 'pointer', accentColor: '#FA4900', height: '4px' }}
+            style={{ width: '100%', cursor: 'pointer', accentColor: tl ? '#7C3AED' : '#FA4900', height: '4px', position: 'relative', zIndex: 1, marginBottom: tl ? '44px' : 0 }}
           />
           {/* Comment markers — point circle with author initial */}
           {duration > 0 && markers?.map((m) => {
@@ -949,29 +1145,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
       {/* Controls */}
       <div style={{ padding: '8px 16px 12px' }}>
-        {/* Playback */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-          <button className="btn btn-icon btn-sm" onClick={() => seek(-10)} title="-10s">
-            <SkipBack size={16} />
+        {/* Playback row: [camera] ... [transport centered] ... [timecode] */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px', position: 'relative', minHeight: '28px' }}>
+          {/* Left: Snapshot */}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={takeSnapshot}
+            title="Snapshot"
+            style={{ padding: '4px 6px', flexShrink: 0 }}
+          >
+            <Camera size={14} />
           </button>
-          <button className="btn btn-icon btn-sm" onClick={() => stepFrame(-1)} title="Previous frame">
-            <ChevronLeft size={16} />
-          </button>
-          <button className="btn btn-icon" onClick={togglePlay}>
-            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-          </button>
-          <button className="btn btn-icon btn-sm" onClick={() => stepFrame(1)} title="Next frame">
-            <ChevronRight size={16} />
-          </button>
-          <button className="btn btn-icon btn-sm" onClick={() => seek(10)} title="+10s">
-            <SkipForward size={16} />
-          </button>
-          <span ref={timecodeRef} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', minWidth: '80px' }}>
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </span>
-          {/* Pending marker confirm/cancel — only for new markers, not range-extension */}
+
+          {/* Pending marker confirm/cancel */}
           {pendingMarker && !pendingRangeForId && (
-            <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
               <button
                 className="btn btn-sm"
                 onClick={() => {
@@ -998,17 +1186,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
               >
                 <X size={13} />
               </button>
-            </>
+            </div>
           )}
 
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={takeSnapshot}
-            style={{ marginLeft: 'auto' }}
-          >
-            <Camera size={14} style={{ marginRight: '4px', display: 'inline' }} />
-            Snapshot
-          </button>
+          {/* Center: Transport controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+            <button className="btn btn-icon btn-sm" onClick={() => tl ? tl.onSeek(tl.globalTime - 10) : seek(-10)} title="-10s">
+              <SkipBack size={16} />
+            </button>
+            <button className="btn btn-icon btn-sm" onClick={() => tl ? tl.onSeek(tl.globalTime - (frameRate ? 1/frameRate : 0.04)) : stepFrame(-1)} title="Previous frame">
+              <ChevronLeft size={16} />
+            </button>
+            <button className="btn btn-icon" onClick={tl ? tl.onPlayPause : togglePlay}>
+              {(tl ? tl.isPlaying : isPlaying) ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+            <button className="btn btn-icon btn-sm" onClick={() => tl ? tl.onSeek(tl.globalTime + (frameRate ? 1/frameRate : 0.04)) : stepFrame(1)} title="Next frame">
+              <ChevronRight size={16} />
+            </button>
+            <button className="btn btn-icon btn-sm" onClick={() => tl ? tl.onSeek(tl.globalTime + 10) : seek(10)} title="+10s">
+              <SkipForward size={16} />
+            </button>
+          </div>
+
+          {/* Right: Timecode */}
+          <span ref={timecodeRef} style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', flexShrink: 0 }}>
+            {tl ? `${formatTime(tl.globalTime)} / ${formatTime(tl.totalDuration)}` : `${formatTime(currentTime)} / ${formatTime(duration)}`}
+          </span>
         </div>
 
         {/* Overlay controls */}
@@ -1078,6 +1281,53 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
             />
           </div>
 
+          {/* Edit block tools — always visible */}
+          {(propAddBlack || propAddImage || propAddBip) && (
+            <>
+              <div style={{ width: '1px', height: '18px', background: 'var(--color-border)', flexShrink: 0 }} />
+              {propAddBlack && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => propAddBlack(3)}
+                  title="Add 3s black block"
+                  style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                >
+                  + Black
+                </button>
+              )}
+              {propAddImage && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={propAddImage}
+                  title="Add image block"
+                  style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                >
+                  + Image
+                </button>
+              )}
+              {propAddBip && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={propAddBip}
+                  title="Add 1s bip tone"
+                  style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                >
+                  + Bip
+                </button>
+              )}
+              {propAddSlate && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={propAddSlate}
+                  title="Open Slate Creator"
+                  style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                >
+                  + Slate
+                </button>
+              )}
+            </>
+          )}
+
           {subtitles && subtitles.length > 0 && (
             <label className="toggle-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.75rem' }}>
               <input
@@ -1088,8 +1338,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
               />
               <span className="toggle-slider"></span>
               <Subtitles size={12} style={{ display: 'inline' }} />
-              <span>Subtitles</span>
             </label>
+          )}
+
+          {/* Export timeline — right side */}
+          {propExport && tl && (
+            <>
+              <div style={{ flex: 1 }} />
+              {propExporting && (
+                <div style={{ width: '60px', height: 4, borderRadius: 2, background: 'var(--color-bg-tertiary)', overflow: 'hidden', flexShrink: 0 }}>
+                  <div style={{ width: `${propExportPct ?? 0}%`, height: '100%', background: 'var(--color-accent)', borderRadius: 2, transition: 'width 0.3s' }} />
+                </div>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={propExport}
+                disabled={propExporting}
+                title={propExporting ? 'Exporting…' : 'Export timeline as video'}
+                style={{ fontSize: '0.7rem', padding: '3px 10px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}
+              >
+                <Film size={11} />
+                {propExporting ? `${propExportPct ?? 0}%` : 'Export'}
+              </button>
+            </>
           )}
         </div>
       </div>
