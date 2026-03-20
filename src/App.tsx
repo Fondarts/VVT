@@ -1394,11 +1394,6 @@ const App: React.FC = () => {
                 <>
                   {scanResult ? (
                     <>
-                      <ContrastChecker
-                        videoEl={videoEl}
-                        currentTime={videoCurrentTime}
-                        onContrastCheck={handleContrastCheck}
-                      />
                       <TranscriptionPanel
                         result={transcription}
                         onTranscriptionDone={setTranscription}
@@ -1412,6 +1407,11 @@ const App: React.FC = () => {
                         <ThumbnailGrid thumbnails={thumbnails} />
                       )}
                       <SlateCreatorCollapsible videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} forceOpen={slateForceOpen > 0 ? slateForceOpen : undefined} videoWidth={scanResult?.video?.width} videoHeight={scanResult?.video?.height} />
+                      <ContrastChecker
+                        videoEl={videoEl}
+                        currentTime={videoCurrentTime}
+                        onContrastCheck={handleContrastCheck}
+                      />
                     </>
                   ) : (
                     <div style={{

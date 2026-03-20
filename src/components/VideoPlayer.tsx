@@ -815,9 +815,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
     seg => currentTimeMs >= seg.from && currentTimeMs <= seg.to
   )?.text ?? null;
 
-  // Word-wrap subtitle based on maxCharsPerLine
+  // Word-wrap subtitle based on maxCharsPerLine, capped by maxLines
   const maxCpl = subtitleStyle?.maxCharsPerLine ?? 42;
-  const currentSubtitle = currentSubtitleRaw ? wrapSubtitle(currentSubtitleRaw, maxCpl) : null;
+  const maxLines = subtitleStyle?.maxLines ?? 2;
+  const currentSubtitle = currentSubtitleRaw ? (() => {
+    const wrapped = wrapSubtitle(currentSubtitleRaw, maxCpl);
+    const lines = wrapped.split('\n');
+    return lines.length > maxLines ? lines.slice(0, maxLines).join('\n') : wrapped;
+  })() : null;
 
   const guidePresets = overlayPresets.filter(o => o.group === 'guides');
   const safezoneImagePresets = overlayPresets.filter(o => o.group === 'safezones');
@@ -950,18 +955,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
         {/* Subtitle overlay */}
         {showSubtitles && currentSubtitle && (() => {
           const ss = subtitleStyle;
+          const pos = ss?.position || 'bottom';
           const scaledFontSize = ss ? `clamp(0.5rem, ${ss.fontSize / 28}vw, ${ss.fontSize * 0.6}px)` : 'clamp(0.7rem, 1.8vw, 1rem)';
+          const posStyle: React.CSSProperties = pos === 'top'
+            ? { top: '5%' }
+            : pos === 'center'
+            ? { top: '50%', transform: 'translateY(-50%)' }
+            : { bottom: '8%' };
           return (
             <div
               style={{
                 position: 'absolute',
-                bottom: '8%',
-                left: 0,
-                right: 0,
+                left: 0, right: 0,
                 display: 'flex',
                 justifyContent: 'center',
                 pointerEvents: 'none',
                 zIndex: 10,
+                ...posStyle,
               }}
             >
               <span
@@ -1376,7 +1386,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
           )}
 
           {/* Export timeline — right side */}
-          {propExport && tl && (
+          {propExport && (
             <>
               <div style={{ flex: 1 }} />
               {propExporting && (

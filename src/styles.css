@@ -179,6 +179,17 @@ body {
   border-color: var(--color-accent);
 }
 
+/* Hide native number spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* Select */
 .select {
   padding: 8px 12px;

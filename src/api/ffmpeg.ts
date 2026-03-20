@@ -1592,9 +1592,18 @@ function generateASS(burn: SubtitleBurnIn, width: number, height: number): strin
     const r = hex.slice(1, 3); const g = hex.slice(3, 5); const b = hex.slice(5, 7);
     return `&H00${b}${g}${r}`.toUpperCase();
   };
-  const bgAlpha = s.showBackground ? '80' : 'FF';
-  const backColor = `&H${bgAlpha}000000`;
-  const borderStyle = s.showBackground ? 3 : 1; // 3 = opaque box, 1 = outline+shadow
+  // Parse rgba backgroundColor for ASS
+  const bgMatch = s.backgroundColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+  const bgAlphaFloat = s.showBackground ? (bgMatch && bgMatch[4] !== undefined ? parseFloat(bgMatch[4]) : 1) : 0;
+  const bgAlphaHex = Math.round((1 - bgAlphaFloat) * 255).toString(16).padStart(2, '0').toUpperCase();
+  const bgR = bgMatch ? parseInt(bgMatch[1]).toString(16).padStart(2, '0') : '00';
+  const bgG = bgMatch ? parseInt(bgMatch[2]).toString(16).padStart(2, '0') : '00';
+  const bgB = bgMatch ? parseInt(bgMatch[3]).toString(16).padStart(2, '0') : '00';
+  const backColor = `&H${bgAlphaHex}${bgB}${bgG}${bgR}`.toUpperCase();
+  const borderStyle = s.showBackground ? 3 : 1;
+  // ASS alignment: bottom-center=2, top-center=8, middle-center=5
+  const alignment = s.position === 'top' ? 8 : s.position === 'center' ? 5 : 2;
+  const maxLines = s.maxLines || 2;
 
   const header = `[Script Info]
 ScriptType: v4.00+
@@ -1604,7 +1613,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${s.fontFamily},${fs},${assColor(s.color)},${assColor(s.color)},${assColor(s.strokeColor)},${backColor},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,2,20,20,${marginV},1
+Style: Default,${s.fontFamily},${fs},${assColor(s.color)},${assColor(s.color)},${assColor(s.strokeColor)},${backColor},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},20,20,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
@@ -1618,7 +1627,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
       else { line = line ? `${line} ${word}` : word; }
     }
     if (line) lines.push(line);
-    return lines.join('\\N');
+    // Cap to maxLines
+    const capped = lines.slice(0, maxLines);
+    return capped.join('\\N');
   };
 
   const formatTime = (ms: number) => {

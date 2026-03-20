@@ -173,13 +173,15 @@ export interface TranscriptionResult {
 
 export interface SubtitleStyle {
   maxCharsPerLine: number;
+  maxLines: number;            // 1, 2, 3
+  position: 'top' | 'center' | 'bottom';
   fontFamily: string;
-  fontSize: number;          // px relative to 1080p
-  color: string;             // hex
-  strokeColor: string;       // hex
-  strokeWidth: number;       // px
+  fontSize: number;            // px relative to 1080p
+  color: string;               // hex
+  strokeColor: string;         // hex
+  strokeWidth: number;         // px
   showBackground: boolean;
-  backgroundColor: string;   // hex with alpha
+  backgroundColor: string;     // rgba string
 }
 
 export interface ValidationReport {
