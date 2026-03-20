@@ -56,7 +56,7 @@ import { ExportModal } from './components/ExportModal';
 import type { ExportSettings } from './components/ExportModal';
 import type { TimelineBlock, TimelinePreview } from './components/EditTimeline';
 import { exportTimeline } from './api/ffmpeg';
-import type { ExportBlock, ExportCodecConfig, SubtitleBurnIn } from './api/ffmpeg';
+import type { ExportCodecConfig, SubtitleBurnIn } from './api/ffmpeg';
 import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult, SubtitleStyle } from './shared/types';
 import { DEFAULT_SUBTITLE_STYLE } from './components/SubtitleSettingsModal';
@@ -471,7 +471,7 @@ const App: React.FC = () => {
   }, [scanResult, selectedFile]);
 
   const handleTimelineExport = useCallback(async (settings?: ExportSettings) => {
-    if (!selectedFile || timelineBlocks.length < 2 || tlExporting) return;
+    if (!selectedFile || tlExporting) return;
     setShowExportModal(false);
     setTlExporting(true);
     setTlExportPct(0);
@@ -491,18 +491,19 @@ const App: React.FC = () => {
         ? { segments: transcription.segments, style: subtitleStyle, maxCharsPerLine: subtitleStyle.maxCharsPerLine }
         : undefined;
 
+    // If no timeline blocks, create a single video block (direct export)
+    const hasTimeline = timelineBlocks.length >= 2;
+    const effectiveBlocks = hasTimeline
+      ? timelineBlocks.map(b => ({ type: b.type, duration: b.duration, slatePng: b.slatePng }))
+      : [{ type: 'video' as const, duration: 0, slatePng: undefined }];
+
     try {
       // ── Native export via helper ──
       if (settings?.useNative) {
         const { runNativeExport } = await import('./api/helperClient');
-        const blocksForNative = timelineBlocks.map(b => ({
-          type: b.type,
-          duration: b.duration,
-          slatePng: b.slatePng,
-        }));
         const outputPath = await runNativeExport(
           selectedFile,
-          blocksForNative,
+          effectiveBlocks,
           { codec: codecCfg.codec, quality: codecCfg.quality, streamCopy: codecCfg.streamCopy },
           (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
           subBurnIn,
@@ -512,12 +513,7 @@ const App: React.FC = () => {
       }
 
       // ── Browser WASM export ──
-      const exportBlocks: ExportBlock[] = timelineBlocks.map(b => ({
-        type: b.type,
-        duration: b.duration,
-        slatePng: b.slatePng,
-      }));
-      const url = await exportTimeline(selectedFile, exportBlocks, {
+      const url = await exportTimeline(selectedFile, effectiveBlocks, {
         onProgress: (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
         codec: codecCfg,
         subtitleBurnIn: subBurnIn,

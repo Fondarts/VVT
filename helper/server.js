@@ -313,11 +313,13 @@ function probeVideo(filePath) {
           const video = data.streams.find(s => s.codec_type === 'video');
           const audio = data.streams.find(s => s.codec_type === 'audio');
           const [num, den] = (video?.r_frame_rate || '25/1').split('/').map(Number);
+          const duration = parseFloat(data.format?.duration || video?.duration || '0');
           resolve({
             width: video?.width || 1920,
             height: video?.height || 1080,
             fps: Math.round((den ? num / den : num) * 100) / 100,
             hasAudio: !!audio,
+            duration,
           });
         } catch { resolve({ width: 1920, height: 1080, fps: 25, hasAudio: true }); }
       });
@@ -325,13 +327,15 @@ function probeVideo(filePath) {
       // Fallback: parse ffmpeg stderr
       exec(`"${ffmpegPath}" -hide_banner -i "${filePath}" -f null - 2>&1`, { timeout: 15000 }, (err, stdout, stderr) => {
         const output = stderr || stdout || '';
-        let width = 1920, height = 1080, fps = 25;
+        let width = 1920, height = 1080, fps = 25, duration = 0;
         const resMatch = output.match(/(\d{2,5})x(\d{2,5})/);
         if (resMatch) { width = parseInt(resMatch[1]); height = parseInt(resMatch[2]); }
         const fpsMatch = output.match(/([\d.]+)\s*fps/);
         if (fpsMatch) fps = parseFloat(fpsMatch[1]);
+        const durMatch = output.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+        if (durMatch) duration = parseInt(durMatch[1]) * 3600 + parseInt(durMatch[2]) * 60 + parseFloat(durMatch[3]);
         const hasAudio = /Audio:/.test(output);
-        resolve({ width, height, fps, hasAudio });
+        resolve({ width, height, fps, hasAudio, duration });
       });
     }
   });
@@ -435,7 +439,8 @@ async function runExport(job) {
   try {
     currentJob.label = 'Probing video...';
     const probe = await probeVideo(job.inputPath);
-    const totalDuration = job.blocks.reduce((s, b) => s + b.duration, 0);
+    // Use probed duration for video blocks with duration 0 (direct export without timeline)
+    const totalDuration = job.blocks.reduce((s, b) => s + (b.type === 'video' && b.duration === 0 ? probe.duration : b.duration), 0) || probe.duration;
 
     if (job.codec.streamCopy && job.codec.codec === 'h264' && !job.assPath) {
       // Stream copy path: encode slates/blacks individually, then concat demuxer
