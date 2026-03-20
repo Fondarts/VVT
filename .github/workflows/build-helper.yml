@@ -7,43 +7,45 @@ on:
       - 'helper-v*'
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            target: node18-win-x64
-            output: KissdHelper.exe
-          - os: macos-latest
-            target: node18-macos-arm64
-            output: KissdHelper-mac-arm64
-          - os: macos-13
-            target: node18-macos-x64
-            output: KissdHelper-mac-x64
-
-    runs-on: ${{ matrix.os }}
-
+  build-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+      - name: Build with pkg
+        run: npx pkg@5.8.1 helper/server.js --target node18-win-x64 --output helper/dist/KissdHelper.exe --compress GZip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KissdHelper.exe
+          path: helper/dist/KissdHelper.exe
 
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - target: node18-macos-arm64
+            output: KissdHelper-mac-arm64
+          - target: node18-macos-x64
+            output: KissdHelper-mac-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
       - name: Build with pkg
         run: npx pkg@5.8.1 helper/server.js --target ${{ matrix.target }} --output helper/dist/${{ matrix.output }} --compress GZip
-
-      - name: Make executable (macOS)
-        if: runner.os == 'macOS'
+      - name: Make executable
         run: chmod +x helper/dist/${{ matrix.output }}
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.output }}
           path: helper/dist/${{ matrix.output }}
 
   release:
-    needs: build
+    needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/helper-v')
     permissions:
