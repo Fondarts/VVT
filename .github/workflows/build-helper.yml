@@ -1,0 +1,80 @@
+name: Build KISSD Export Helper
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'helper-v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: node18-win-x64
+            output: KissdHelper.exe
+          - os: macos-latest
+            target: node18-macos-arm64
+            output: KissdHelper-mac-arm64
+          - os: macos-13
+            target: node18-macos-x64
+            output: KissdHelper-mac-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Build with pkg
+        run: npx pkg@5.8.1 helper/server.js --target ${{ matrix.target }} --output helper/dist/${{ matrix.output }} --compress GZip
+
+      - name: Make executable (macOS)
+        if: runner.os == 'macOS'
+        run: chmod +x helper/dist/${{ matrix.output }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: helper/dist/${{ matrix.output }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/helper-v')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "KISSD Export Helper ${{ github.ref_name }}"
+          body: |
+            ## KISSD Export Helper
+
+            Native FFmpeg companion for the KISSD web app.
+
+            ### Downloads
+            - **Windows**: `KissdHelper.exe`
+            - **macOS Apple Silicon** (M1/M2/M3): `KissdHelper-mac-arm64`
+            - **macOS Intel**: `KissdHelper-mac-x64`
+
+            ### How to use
+            1. Download the right file for your OS
+            2. Run it (first time it will download FFmpeg automatically)
+            3. macOS: you may need to right-click > Open the first time, or run `chmod +x` and `xattr -d com.apple.quarantine` on the file
+            4. Keep it open while using KISSD
+            5. In the Export dialog, "Native" will activate automatically
+          files: |
+            artifacts/KissdHelper.exe/*
+            artifacts/KissdHelper-mac-arm64/*
+            artifacts/KissdHelper-mac-x64/*

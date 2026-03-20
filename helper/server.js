@@ -94,12 +94,44 @@ function download(url, dest, onProgress) {
   });
 }
 
+function getFFmpegDownloadInfo() {
+  const arch = process.arch; // 'x64' or 'arm64'
+  if (process.platform === 'win32') {
+    return {
+      url: FFMPEG_URL_WIN,
+      archive: 'ffmpeg.zip',
+      extract: 'zip',
+      binaries: ['ffmpeg.exe', 'ffprobe.exe'],
+    };
+  }
+  if (process.platform === 'darwin') {
+    // macOS — use evermeet.cx static builds (universal approach via BtbN for x64, or osxcross)
+    // Using the BtbN linux builds won't work on mac. Use a different strategy:
+    // Download individual binaries from evermeet.cx
+    return {
+      urlFFmpeg: 'https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip',
+      urlFFprobe: 'https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip',
+      extract: 'zip-mac',
+      binaries: ['ffmpeg', 'ffprobe'],
+      arch,
+    };
+  }
+  if (process.platform === 'linux') {
+    return {
+      url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz',
+      archive: 'ffmpeg.tar.xz',
+      extract: 'tar',
+      binaries: ['ffmpeg', 'ffprobe'],
+    };
+  }
+  return null;
+}
+
 async function downloadFFmpeg() {
-  if (process.platform !== 'win32') {
-    console.log('\n  Auto-download is only supported on Windows.');
-    console.log('  Please install FFmpeg manually:');
-    console.log('    macOS:  brew install ffmpeg');
-    console.log('    Linux:  sudo apt install ffmpeg\n');
+  const info = getFFmpegDownloadInfo();
+  if (!info) {
+    console.log('\n  Auto-download not supported on this platform.');
+    console.log('  Please install FFmpeg manually.\n');
     return false;
   }
 
@@ -107,43 +139,70 @@ async function downloadFFmpeg() {
   console.log('  (This only happens once)\n');
 
   if (!fs.existsSync(FFMPEG_DIR)) fs.mkdirSync(FFMPEG_DIR, { recursive: true });
-  const zipPath = path.join(FFMPEG_DIR, 'ffmpeg.zip');
 
   try {
-    // Download
-    await download(FFMPEG_URL_WIN, zipPath, (pct) => {
-      process.stdout.write(`\r  Downloading FFmpeg... ${pct}%  `);
-    });
-    console.log('\n  Download complete. Extracting...');
-
-    // Extract using PowerShell
-    execSync(
-      `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${FFMPEG_DIR}' -Force"`,
-      { stdio: 'inherit', timeout: 120000 }
-    );
-
-    // Find extracted folder and move binaries up
-    const entries = fs.readdirSync(FFMPEG_DIR);
-    const extracted = entries.find(e => e.startsWith('ffmpeg-') && fs.statSync(path.join(FFMPEG_DIR, e)).isDirectory());
-    if (extracted) {
-      const binDir = path.join(FFMPEG_DIR, extracted, 'bin');
-      for (const file of ['ffmpeg.exe', 'ffprobe.exe']) {
-        const src = path.join(binDir, file);
-        const dest = path.join(FFMPEG_DIR, file);
-        if (fs.existsSync(src)) fs.renameSync(src, dest);
+    if (info.extract === 'zip-mac') {
+      // macOS: download ffmpeg and ffprobe separately from evermeet.cx
+      for (const [label, url] of [['ffmpeg', info.urlFFmpeg], ['ffprobe', info.urlFFprobe]]) {
+        const zipPath = path.join(FFMPEG_DIR, `${label}.zip`);
+        await download(url, zipPath, (pct) => {
+          process.stdout.write(`\r  Downloading ${label}... ${pct}%  `);
+        });
+        console.log('');
+        execSync(`unzip -o "${zipPath}" -d "${FFMPEG_DIR}"`, { stdio: 'inherit', timeout: 30000 });
+        execSync(`chmod +x "${path.join(FFMPEG_DIR, label)}"`, { stdio: 'inherit' });
+        try { fs.unlinkSync(zipPath); } catch {}
       }
-      // Cleanup extracted folder
-      fs.rmSync(path.join(FFMPEG_DIR, extracted), { recursive: true, force: true });
+    } else if (info.extract === 'zip') {
+      // Windows
+      const zipPath = path.join(FFMPEG_DIR, info.archive);
+      await download(info.url, zipPath, (pct) => {
+        process.stdout.write(`\r  Downloading FFmpeg... ${pct}%  `);
+      });
+      console.log('\n  Download complete. Extracting...');
+      execSync(
+        `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${FFMPEG_DIR}' -Force"`,
+        { stdio: 'inherit', timeout: 120000 }
+      );
+      // Move binaries from nested folder
+      const entries = fs.readdirSync(FFMPEG_DIR);
+      const extracted = entries.find(e => e.startsWith('ffmpeg-') && fs.statSync(path.join(FFMPEG_DIR, e)).isDirectory());
+      if (extracted) {
+        const binDir = path.join(FFMPEG_DIR, extracted, 'bin');
+        for (const file of info.binaries) {
+          const src = path.join(binDir, file);
+          const dest = path.join(FFMPEG_DIR, file);
+          if (fs.existsSync(src)) fs.renameSync(src, dest);
+        }
+        fs.rmSync(path.join(FFMPEG_DIR, extracted), { recursive: true, force: true });
+      }
+      try { fs.unlinkSync(zipPath); } catch {}
+    } else if (info.extract === 'tar') {
+      // Linux
+      const tarPath = path.join(FFMPEG_DIR, info.archive);
+      await download(info.url, tarPath, (pct) => {
+        process.stdout.write(`\r  Downloading FFmpeg... ${pct}%  `);
+      });
+      console.log('\n  Download complete. Extracting...');
+      execSync(`tar xf "${tarPath}" -C "${FFMPEG_DIR}"`, { stdio: 'inherit', timeout: 120000 });
+      const entries = fs.readdirSync(FFMPEG_DIR);
+      const extracted = entries.find(e => e.startsWith('ffmpeg-') && fs.statSync(path.join(FFMPEG_DIR, e)).isDirectory());
+      if (extracted) {
+        const binDir = path.join(FFMPEG_DIR, extracted, 'bin');
+        for (const file of info.binaries) {
+          const src = path.join(binDir, file);
+          const dest = path.join(FFMPEG_DIR, file);
+          if (fs.existsSync(src)) fs.renameSync(src, dest);
+        }
+        fs.rmSync(path.join(FFMPEG_DIR, extracted), { recursive: true, force: true });
+      }
+      try { fs.unlinkSync(tarPath); } catch {}
     }
-
-    // Cleanup zip
-    try { fs.unlinkSync(zipPath); } catch {}
 
     console.log('  FFmpeg installed successfully!\n');
     return resolveFFmpeg();
   } catch (err) {
     console.error(`\n  Failed to download FFmpeg: ${err.message}`);
-    try { fs.unlinkSync(zipPath); } catch {}
     return false;
   }
 }
