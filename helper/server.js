@@ -17,7 +17,12 @@ const https = require('https');
 const PORT = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--port') || '3777');
 const VERSION = '1.0.0';
 const APP_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
-const FFMPEG_DIR = path.join(APP_DIR, 'ffmpeg');
+// On macOS .app bundles, the binary is inside Contents/MacOS which is read-only after signing.
+// Use ~/Library/Application Support for persistent data instead.
+const DATA_DIR = process.platform === 'darwin' && APP_DIR.includes('.app/Contents/MacOS')
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'KissdHelper')
+  : APP_DIR;
+const FFMPEG_DIR = path.join(DATA_DIR, 'ffmpeg');
 const TEMP_DIR = path.join(os.tmpdir(), 'kissd-helper');
 const FFMPEG_URL_WIN = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 
