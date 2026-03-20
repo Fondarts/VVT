@@ -15,9 +15,26 @@ import {
   Film,
 } from 'lucide-react';
 import { overlayPresets } from '../shared/presets';
-import type { TranscriptionSegment, AnnotationStroke } from '../shared/types';
+import type { TranscriptionSegment, AnnotationStroke, SubtitleStyle } from '../shared/types';
 import { AnnotationCanvas } from './AnnotationCanvas';
 
+
+/** Word-wrap text to fit maxCharsPerLine, breaking at word boundaries */
+function wrapSubtitle(text: string, maxCpl: number): string {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (line && (line.length + 1 + word.length) > maxCpl) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
+}
 
 const AUTHOR_PALETTE = ['#FA4900', '#7C3AED', '#059669', '#2563EB', '#D97706', '#DB2777', '#0891B2', '#65A30D'];
 const authorColorMap = new Map<string, string>();
@@ -48,6 +65,7 @@ interface VideoPlayerProps {
   videoHeight: number;
   frameRate: number;
   subtitles?: TranscriptionSegment[];
+  subtitleStyle?: SubtitleStyle;
   compact?: boolean;       // Reduces video max-height so overlay controls stay in view
   markers?: { time: number; id: string; author: string }[];
   markerRanges?: { start: number; end: number; id: string; author: string }[];
@@ -92,6 +110,7 @@ export interface VideoPlayerHandle {
   setLineWidth: (w: number) => void;
   undoLastStroke: () => void;
   initializeDrawStrokes: (strokes: AnnotationStroke[]) => void;
+  areSubtitlesEnabled: () => boolean;
 }
 
 /* ── Timeline block bar: drag-to-reorder + double-click to edit duration ── */
@@ -239,6 +258,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   videoHeight,
   frameRate,
   subtitles,
+  subtitleStyle,
   compact = false,
   markers,
   markerRanges,
@@ -372,6 +392,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
     },
     initializeDrawStrokes(strokes: AnnotationStroke[]) {
       setDrawStrokes(strokes);
+    },
+    areSubtitlesEnabled() {
+      return showSubtitles;
     },
   }));
 
@@ -788,9 +811,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
 
   // Find the subtitle segment that matches the current playback time
   const currentTimeMs = currentTime * 1000;
-  const currentSubtitle = subtitles?.find(
+  const currentSubtitleRaw = subtitles?.find(
     seg => currentTimeMs >= seg.from && currentTimeMs <= seg.to
   )?.text ?? null;
+
+  // Word-wrap subtitle based on maxCharsPerLine
+  const maxCpl = subtitleStyle?.maxCharsPerLine ?? 42;
+  const currentSubtitle = currentSubtitleRaw ? wrapSubtitle(currentSubtitleRaw, maxCpl) : null;
 
   const guidePresets = overlayPresets.filter(o => o.group === 'guides');
   const safezoneImagePresets = overlayPresets.filter(o => o.group === 'safezones');
@@ -921,36 +948,43 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
         )}
 
         {/* Subtitle overlay */}
-        {showSubtitles && currentSubtitle && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '8%',
-              left: 0,
-              right: 0,
-              display: 'flex',
-              justifyContent: 'center',
-              pointerEvents: 'none',
-              zIndex: 10,
-            }}
-          >
-            <span
+        {showSubtitles && currentSubtitle && (() => {
+          const ss = subtitleStyle;
+          const scaledFontSize = ss ? `clamp(0.5rem, ${ss.fontSize / 28}vw, ${ss.fontSize * 0.6}px)` : 'clamp(0.7rem, 1.8vw, 1rem)';
+          return (
+            <div
               style={{
-                background: 'rgba(0,0,0,0.78)',
-                color: '#fff',
-                padding: '4px 14px',
-                borderRadius: '4px',
-                fontSize: 'clamp(0.7rem, 1.8vw, 1rem)',
-                maxWidth: '82%',
-                textAlign: 'center',
-                lineHeight: 1.4,
-                whiteSpace: 'pre-wrap',
+                position: 'absolute',
+                bottom: '8%',
+                left: 0,
+                right: 0,
+                display: 'flex',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+                zIndex: 10,
               }}
             >
-              {currentSubtitle}
-            </span>
-          </div>
-        )}
+              <span
+                style={{
+                  background: ss?.showBackground ? (ss.backgroundColor || 'rgba(0,0,0,0.78)') : 'transparent',
+                  color: ss?.color || '#fff',
+                  fontFamily: ss?.fontFamily || 'Arial',
+                  WebkitTextStroke: ss && ss.strokeWidth > 0 ? `${ss.strokeWidth * 0.5}px ${ss.strokeColor}` : undefined,
+                  paintOrder: 'stroke fill' as const,
+                  padding: ss?.showBackground ? '4px 14px' : '4px 0',
+                  borderRadius: '4px',
+                  fontSize: scaledFontSize,
+                  maxWidth: '82%',
+                  textAlign: 'center',
+                  lineHeight: 1.4,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {currentSubtitle}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Timeline scrubber */}

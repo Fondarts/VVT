@@ -56,9 +56,10 @@ import { ExportModal } from './components/ExportModal';
 import type { ExportSettings } from './components/ExportModal';
 import type { TimelineBlock, TimelinePreview } from './components/EditTimeline';
 import { exportTimeline } from './api/ffmpeg';
-import type { ExportBlock, ExportCodecConfig } from './api/ffmpeg';
+import type { ExportBlock, ExportCodecConfig, SubtitleBurnIn } from './api/ffmpeg';
 import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
-import type { TranscriptionResult } from './shared/types';
+import type { TranscriptionResult, SubtitleStyle } from './shared/types';
+import { DEFAULT_SUBTITLE_STYLE } from './components/SubtitleSettingsModal';
 
 // ── Rule-based custom preset form ───────────────────────────────────
 interface RuleState { condition: string; value: string; }
@@ -107,7 +108,7 @@ const makeDefaultRules = (): Record<string, RuleState> =>
 interface CustomPresetForm { name: string; rules: Record<string, RuleState>; }
 const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
 
-const SlateCreatorCollapsible: React.FC<{ videoFile: File | null; onAddSlateBlock: (block: import('./components/EditTimeline').TimelineBlock) => void; forceOpen?: number }> = ({ videoFile, onAddSlateBlock, forceOpen }) => {
+const SlateCreatorCollapsible: React.FC<{ videoFile: File | null; onAddSlateBlock: (block: import('./components/EditTimeline').TimelineBlock) => void; forceOpen?: number; videoWidth?: number; videoHeight?: number }> = ({ videoFile, onAddSlateBlock, forceOpen, videoWidth, videoHeight }) => {
   const [collapsed, setCollapsed] = useState(true);
   React.useEffect(() => { if (forceOpen) setCollapsed(false); }, [forceOpen]);
   return (
@@ -123,7 +124,7 @@ const SlateCreatorCollapsible: React.FC<{ videoFile: File | null; onAddSlateBloc
       </div>
       {!collapsed && (
         <div style={{ padding: '12px' }}>
-          <SlateCreator videoFile={videoFile} onAddSlateBlock={onAddSlateBlock} />
+          <SlateCreator videoFile={videoFile} onAddSlateBlock={onAddSlateBlock} videoWidth={videoWidth} videoHeight={videoHeight} />
         </div>
       )}
     </div>
@@ -187,6 +188,7 @@ const App: React.FC = () => {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const [contrastChecks, setContrastChecks] = useState<ContrastCheck[]>([]);
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
+  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(DEFAULT_SUBTITLE_STYLE);
   const [error, setError] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'specs' | 'feedback' | 'tools'>('feedback');
   const [slateForceOpen, setSlateForceOpen] = useState(0);
@@ -478,7 +480,16 @@ const App: React.FC = () => {
     const codecCfg: ExportCodecConfig = settings
       ? { codec: settings.codec, quality: settings.quality, streamCopy: settings.streamCopy }
       : { codec: 'h264', quality: 'medium' };
-    const ext = codecCfg.codec.startsWith('prores') ? 'mov' : 'mp4';
+    const ext = codecCfg.codec.startsWith('prores') ? 'mov'
+      : (codecCfg.codec === 'xdcam' || codecCfg.codec === 'dnxhd' || codecCfg.codec === 'dnxhr') ? 'mxf'
+      : 'mp4';
+
+    // Check if subtitles should be burned in
+    const subsEnabled = videoPlayerRef.current?.areSubtitlesEnabled() ?? false;
+    const subBurnIn: SubtitleBurnIn | undefined =
+      subsEnabled && transcription?.segments?.length
+        ? { segments: transcription.segments, style: subtitleStyle, maxCharsPerLine: subtitleStyle.maxCharsPerLine }
+        : undefined;
 
     try {
       // ── Native export via helper ──
@@ -494,6 +505,7 @@ const App: React.FC = () => {
           blocksForNative,
           { codec: codecCfg.codec, quality: codecCfg.quality, streamCopy: codecCfg.streamCopy },
           (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
+          subBurnIn,
         );
         setTlExportLabel(`Saved to ${outputPath}`);
         return;
@@ -508,6 +520,7 @@ const App: React.FC = () => {
       const url = await exportTimeline(selectedFile, exportBlocks, {
         onProgress: (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
         codec: codecCfg,
+        subtitleBurnIn: subBurnIn,
       });
       const a = document.createElement('a');
       a.download = `${selectedFile.name.replace(/\.[^.]+$/, '')}_edit.${ext}`;
@@ -1072,6 +1085,7 @@ const App: React.FC = () => {
                   videoHeight={scanResult?.video?.height ?? 0}
                   frameRate={scanResult?.video?.frameRate ?? 0}
                   subtitles={transcription?.segments}
+                  subtitleStyle={subtitleStyle}
                   markers={feedbackMarkers}
                   markerRanges={feedbackMarkerRanges}
                   onMarkerMove={handleMarkerMove}
@@ -1391,11 +1405,13 @@ const App: React.FC = () => {
                         onSeek={ms => videoPlayerRef.current?.seekTo(ms)}
                         videoFile={selectedFile}
                         transcodedVideoSrc={transcodedVideoSrc ?? undefined}
+                        subtitleStyle={subtitleStyle}
+                        onSubtitleStyleChange={setSubtitleStyle}
                       />
                       {thumbnails.length > 0 && (
                         <ThumbnailGrid thumbnails={thumbnails} />
                       )}
-                      <SlateCreatorCollapsible videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} forceOpen={slateForceOpen > 0 ? slateForceOpen : undefined} />
+                      <SlateCreatorCollapsible videoFile={selectedFile} onAddSlateBlock={handleAddSlateBlock} forceOpen={slateForceOpen > 0 ? slateForceOpen : undefined} videoWidth={scanResult?.video?.width} videoHeight={scanResult?.video?.height} />
                     </>
                   ) : (
                     <div style={{

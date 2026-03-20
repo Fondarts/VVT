@@ -1,39 +1,97 @@
 import React, { useState, useEffect } from 'react';
-import { X, Film, Monitor, Globe, Download } from 'lucide-react';
+import { X, Film, Monitor, Globe, Download, Plus, Trash2, Save } from 'lucide-react';
 import { checkHelper } from '../api/helperClient';
 import type { HelperHealth } from '../api/helperClient';
 
+export type CodecId =
+  | 'h264' | 'prores' | 'prores_lt' | 'prores_proxy'
+  | 'xdcam' | 'dnxhd' | 'dnxhr';
+
 export interface ExportSettings {
-  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy';
+  codec: CodecId;
   quality: 'high' | 'medium' | 'draft';
   useNative: boolean;
   streamCopy: boolean;
 }
 
-const CODEC_OPTIONS: { id: ExportSettings['codec']; label: string; desc: string; ext: string; nativeOnly?: boolean }[] = [
-  { id: 'h264', label: 'H.264 (MP4)', desc: 'Universal playback, small files', ext: '.mp4' },
-  { id: 'prores', label: 'ProRes 422 HQ', desc: 'Broadcast quality, large files', ext: '.mov' },
-  { id: 'prores_lt', label: 'ProRes 422 LT', desc: 'Lighter ProRes, good quality', ext: '.mov' },
-  { id: 'prores_proxy', label: 'ProRes 422 Proxy', desc: 'Smallest ProRes, for offline', ext: '.mov' },
+/* ── Format families ── */
+
+type Family = 'h264' | 'prores' | 'mxf';
+
+interface FamilyDef {
+  id: Family;
+  label: string;
+  desc: string;
+  nativeOnly?: boolean;
+}
+
+const FAMILIES: FamilyDef[] = [
+  { id: 'h264', label: 'H.264', desc: 'MP4 — universal playback' },
+  { id: 'prores', label: 'ProRes', desc: 'MOV — broadcast quality', nativeOnly: true },
+  { id: 'mxf', label: 'MXF', desc: 'MXF — broadcast delivery', nativeOnly: true },
 ];
 
-const QUALITY_OPTIONS: { id: ExportSettings['quality']; label: string; desc: string }[] = [
-  { id: 'high', label: 'High', desc: 'Best quality, slower' },
-  { id: 'medium', label: 'Medium', desc: 'Balanced' },
-  { id: 'draft', label: 'Draft', desc: 'Fast, lower quality' },
-];
+/* ── Presets per family ── */
+
+interface PresetDef {
+  id: CodecId;
+  quality: ExportSettings['quality'];
+  label: string;
+  desc: string;
+  ext: string;
+}
+
+const PRESETS: Record<Family, PresetDef[]> = {
+  h264: [
+    { id: 'h264', quality: 'high', label: 'High Quality', desc: 'CRF 15 · slow preset · best quality', ext: '.mp4' },
+    { id: 'h264', quality: 'medium', label: 'Balanced', desc: 'CRF 20 · medium preset', ext: '.mp4' },
+    { id: 'h264', quality: 'draft', label: 'Fast Draft', desc: 'CRF 28 · ultrafast · preview quality', ext: '.mp4' },
+  ],
+  prores: [
+    { id: 'prores', quality: 'high', label: 'ProRes 422 HQ', desc: 'Highest quality, large files', ext: '.mov' },
+    { id: 'prores_lt', quality: 'high', label: 'ProRes 422 LT', desc: 'Good quality, smaller files', ext: '.mov' },
+    { id: 'prores_proxy', quality: 'high', label: 'ProRes Proxy', desc: 'Lightweight, for offline editing', ext: '.mov' },
+  ],
+  mxf: [
+    { id: 'xdcam', quality: 'high', label: 'XDCAM HD422', desc: 'MPEG-2 50 Mbps · broadcast standard', ext: '.mxf' },
+    { id: 'dnxhd', quality: 'high', label: 'DNxHD 185', desc: 'Avid DNxHD 185 Mbps · post-production', ext: '.mxf' },
+    { id: 'dnxhr', quality: 'high', label: 'DNxHR HQ', desc: 'Avid DNxHR · any resolution', ext: '.mxf' },
+  ],
+};
+
+/* ── Custom presets (localStorage) ── */
+
+interface CustomPreset {
+  name: string;
+  family: Family;
+  presetIdx: number;
+}
+
+const STORAGE_KEY = 'kissd-export-custom-presets';
+
+function loadCustomPresets(): CustomPreset[] {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+}
+function saveCustomPresets(presets: CustomPreset[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(presets));
+}
+
+/* ── Component ── */
 
 interface Props {
   onExport: (settings: ExportSettings) => void;
   onClose: () => void;
-  inputCodec?: string; // e.g. 'h264', 'prores', 'hevc'
+  inputCodec?: string;
 }
 
 export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) => {
-  const [codec, setCodec] = useState<ExportSettings['codec']>('h264');
-  const [quality, setQuality] = useState<ExportSettings['quality']>('medium');
+  const [family, setFamily] = useState<Family>('h264');
+  const [presetIdx, setPresetIdx] = useState(0);
   const [helper, setHelper] = useState<HelperHealth | null | 'checking'>('checking');
   const [useNative, setUseNative] = useState(false);
+  const [customPresets, setCustomPresets] = useState<CustomPreset[]>(loadCustomPresets);
+  const [savingCustom, setSavingCustom] = useState(false);
+  const [customName, setCustomName] = useState('');
 
   useEffect(() => {
     checkHelper().then(h => {
@@ -42,15 +100,48 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
     });
   }, []);
 
-  const isProRes = codec.startsWith('prores');
   const helperReady = helper && helper !== 'checking' && helper.ffmpeg;
-  const selectedCodec = CODEC_OPTIONS.find(c => c.id === codec)!;
-  const canStreamCopy = inputCodec?.toLowerCase().includes('h264') && codec === 'h264';
 
-  // ProRes only available with native helper
+  // Reset preset when family changes
+  useEffect(() => { setPresetIdx(0); }, [family]);
+
+  // Force browser if native-only family selected without helper
   useEffect(() => {
-    if (isProRes && !helperReady) setCodec('h264');
-  }, [isProRes, helperReady]);
+    const fam = FAMILIES.find(f => f.id === family);
+    if (fam?.nativeOnly && !helperReady) setFamily('h264');
+  }, [family, helperReady]);
+
+  // Force native for native-only families
+  useEffect(() => {
+    const fam = FAMILIES.find(f => f.id === family);
+    if (fam?.nativeOnly && helperReady) setUseNative(true);
+  }, [family, helperReady]);
+
+  const presets = PRESETS[family];
+  const selected = presets[presetIdx] || presets[0];
+  const canStreamCopy = inputCodec?.toLowerCase().includes('h264') && selected.id === 'h264';
+
+  const handleSaveCustom = () => {
+    if (!customName.trim()) return;
+    const updated = [...customPresets, { name: customName.trim(), family, presetIdx }];
+    setCustomPresets(updated);
+    saveCustomPresets(updated);
+    setSavingCustom(false);
+    setCustomName('');
+  };
+
+  const handleDeleteCustom = (idx: number) => {
+    const updated = customPresets.filter((_, i) => i !== idx);
+    setCustomPresets(updated);
+    saveCustomPresets(updated);
+  };
+
+  const handleLoadCustom = (cp: CustomPreset) => {
+    const fam = FAMILIES.find(f => f.id === cp.family);
+    if (fam?.nativeOnly && !helperReady) return;
+    setFamily(cp.family);
+    setTimeout(() => setPresetIdx(cp.presetIdx), 0);
+  };
 
   return (
     <div
@@ -61,13 +152,12 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="card" style={{ width: '440px', maxWidth: '90vw', padding: 0 }}>
+      <div className="card" style={{ width: '480px', maxWidth: '90vw', padding: 0 }}>
         {/* Header */}
         <div className="card-header" style={{ padding: '14px 16px' }}>
           <h3 className="card-title" style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Film size={16} style={{ color: 'var(--color-accent)' }} />
             Export Video
-            {/* Helper status dot */}
             {helper !== 'checking' && (
               <span title={helperReady ? `Helper connected — FFmpeg ${(helper as HelperHealth).ffmpeg}` : 'Helper not running'} style={{
                 width: 8, height: 8, borderRadius: '50%',
@@ -113,7 +203,7 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
                 <Monitor size={16} style={{ margin: '0 auto 4px', display: 'block', color: useNative ? 'var(--color-accent)' : 'var(--color-text-muted)' }} />
                 <div style={{ fontSize: '0.78rem', fontWeight: 600 }}>Native</div>
                 <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                  {helper === 'checking' ? 'Checking…'
+                  {helper === 'checking' ? 'Checking...'
                     : helperReady ? `FFmpeg ${(helper as HelperHealth).ffmpeg}`
                     : 'Not available'}
                 </div>
@@ -131,8 +221,8 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
                 <Download size={14} style={{ flexShrink: 0, marginTop: '1px', color: '#2563EB' }} />
                 <div>
                   <strong style={{ color: 'var(--color-text-primary)' }}>Want faster exports + ProRes?</strong><br />
-                  Install the <strong>KISSD Export Helper</strong> for native FFmpeg encoding with hardware acceleration.
-                  <div style={{ marginTop: '6px', display: 'flex', gap: '6px' }}>
+                  Download and run the <strong>KISSD Export Helper</strong>. It includes FFmpeg automatically.
+                  <div style={{ marginTop: '6px', display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <a
                       href="https://github.com/Fondarts/VVT/releases"
                       target="_blank"
@@ -140,10 +230,10 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
                       className="btn btn-secondary btn-sm"
                       style={{ fontSize: '0.65rem', padding: '2px 8px', textDecoration: 'none' }}
                     >
-                      Download Helper
+                      Download KissdHelper.exe
                     </a>
-                    <span style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)', alignSelf: 'center' }}>
-                      Then run: <code style={{ background: 'var(--color-bg-tertiary)', padding: '1px 4px', borderRadius: '3px' }}>node helper/server.js</code>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>
+                      Just run it and keep it open
                     </span>
                   </div>
                 </div>
@@ -151,81 +241,154 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
             )}
           </div>
 
-          {/* ── Codec selector ── */}
+          {/* ── Format family ── */}
           <div>
             <label style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', display: 'block' }}>
-              Codec
+              Format
             </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {CODEC_OPTIONS.map(opt => {
-                const disabled = opt.id.startsWith('prores') && !useNative;
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {FAMILIES.map(fam => {
+                const disabled = fam.nativeOnly && !helperReady;
+                const active = family === fam.id;
                 return (
                   <button
-                    key={opt.id}
-                    onClick={() => { if (!disabled) setCodec(opt.id); }}
+                    key={fam.id}
+                    onClick={() => { if (!disabled) setFamily(fam.id); }}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '10px',
-                      padding: '7px 12px', borderRadius: '6px', textAlign: 'left', cursor: disabled ? 'default' : 'pointer',
-                      border: codec === opt.id ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                      background: codec === opt.id ? 'rgba(225,255,28,0.08)' : 'var(--color-bg-tertiary)',
+                      flex: 1, padding: '8px 6px', borderRadius: '6px', textAlign: 'center',
+                      cursor: disabled ? 'default' : 'pointer',
+                      border: active ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                      background: active ? 'rgba(225,255,28,0.08)' : 'var(--color-bg-tertiary)',
                       opacity: disabled ? 0.35 : 1,
                     }}
                   >
-                    <div style={{
-                      width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
-                      border: `2px solid ${codec === opt.id ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      {codec === opt.id && <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-accent)' }} />}
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: active ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
+                      {fam.label}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{opt.label}</div>
-                      <div style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)' }}>
-                        {opt.desc}{disabled ? ' — requires Native helper' : ''}
-                      </div>
+                    <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                      {fam.desc}{disabled ? ' · requires Helper' : ''}
                     </div>
-                    <span style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>{opt.ext}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* ── Quality (H.264 only) ── */}
-          {!isProRes && (
-            <div>
-              <label style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', display: 'block' }}>
-                Quality
-              </label>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {QUALITY_OPTIONS.map(opt => (
+          {/* ── Preset selector ── */}
+          <div>
+            <label style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px', display: 'block' }}>
+              Preset
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {presets.map((preset, i) => {
+                const active = presetIdx === i;
+                return (
                   <button
-                    key={opt.id}
-                    onClick={() => setQuality(opt.id)}
+                    key={`${preset.id}-${preset.quality}`}
+                    onClick={() => setPresetIdx(i)}
                     style={{
-                      flex: 1, padding: '6px', borderRadius: '6px', cursor: 'pointer', textAlign: 'center',
-                      border: quality === opt.id ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                      background: quality === opt.id ? 'rgba(225,255,28,0.08)' : 'var(--color-bg-tertiary)',
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '7px 12px', borderRadius: '6px', textAlign: 'left', cursor: 'pointer',
+                      border: active ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
+                      background: active ? 'rgba(225,255,28,0.08)' : 'var(--color-bg-tertiary)',
                     }}
                   >
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{opt.label}</div>
-                    <div style={{ fontSize: '0.6rem', color: 'var(--color-text-muted)' }}>{opt.desc}</div>
+                    <div style={{
+                      width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                      border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {active && <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--color-accent)' }} />}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{preset.label}</div>
+                      <div style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)' }}>{preset.desc}</div>
+                    </div>
+                    <span style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)' }}>{preset.ext}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          )}
+          </div>
 
-          {/* ── Summary ── */}
-          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', padding: '6px 10px', background: 'var(--color-bg-tertiary)', borderRadius: '6px' }}>
-            {useNative ? <Monitor size={11} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px' }} /> : <Globe size={11} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px' }} />}
-            {useNative ? 'Native' : 'Browser'} &middot; <strong style={{ color: 'var(--color-text-primary)' }}>{selectedCodec.label}</strong>
-            {!isProRes && !canStreamCopy && <> &middot; {QUALITY_OPTIONS.find(q => q.id === quality)?.label}</>}
-            <> &middot; {selectedCodec.ext}</>
-            {canStreamCopy && (
-              <span style={{ color: '#22c55e', marginLeft: '6px' }}>
-                ⚡ Stream copy — no re-encode
-              </span>
+          {/* ── Custom presets ── */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <label style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                My Presets
+              </label>
+              {!savingCustom && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setSavingCustom(true); setCustomName(''); }}
+                  style={{ fontSize: '0.62rem', padding: '2px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Plus size={10} /> Save current
+                </button>
+              )}
+            </div>
+
+            {/* Save form */}
+            {savingCustom && (
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+                <input
+                  className="input"
+                  value={customName}
+                  onChange={e => setCustomName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveCustom(); if (e.key === 'Escape') setSavingCustom(false); }}
+                  placeholder={`${selected.label} preset name...`}
+                  autoFocus
+                  style={{ flex: 1, fontSize: '0.72rem', padding: '4px 8px' }}
+                />
+                <button className="btn btn-primary btn-sm" onClick={handleSaveCustom} style={{ fontSize: '0.62rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <Save size={10} /> Save
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setSavingCustom(false)} style={{ fontSize: '0.62rem', padding: '4px 8px' }}>
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Custom preset list */}
+            {customPresets.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {customPresets.map((cp, i) => {
+                  const fam = FAMILIES.find(f => f.id === cp.family);
+                  const preset = PRESETS[cp.family]?.[cp.presetIdx];
+                  const disabled = fam?.nativeOnly && !helperReady;
+                  if (!preset) return null;
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '5px 10px', borderRadius: '6px', cursor: disabled ? 'default' : 'pointer',
+                        border: '1px solid var(--color-border)', background: 'var(--color-bg-tertiary)',
+                        opacity: disabled ? 0.4 : 1,
+                      }}
+                      onClick={() => handleLoadCustom(cp)}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>{cp.name}</div>
+                        <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)' }}>
+                          {fam?.label} &middot; {preset.label} &middot; {preset.ext}
+                        </div>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDeleteCustom(i); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px', display: 'flex' }}
+                        title="Delete preset"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : !savingCustom && (
+              <div style={{ fontSize: '0.62rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                No custom presets yet. Select a format and preset above, then save it here.
+              </div>
             )}
           </div>
 
@@ -236,7 +399,12 @@ export const ExportModal: React.FC<Props> = ({ onExport, onClose, inputCodec }) 
             </button>
             <button
               className="btn btn-primary"
-              onClick={() => onExport({ codec, quality, useNative, streamCopy: !!canStreamCopy })}
+              onClick={() => onExport({
+                codec: selected.id,
+                quality: selected.quality,
+                useNative,
+                streamCopy: !!canStreamCopy,
+              })}
               style={{ padding: '6px 20px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <Film size={14} />

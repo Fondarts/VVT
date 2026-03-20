@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic, Copy, Check, FileDown, AlertCircle,
-  ChevronDown, ChevronUp, Play, Loader2, Settings, Download, CheckCircle2,
+  ChevronDown, ChevronUp, Play, Loader2, Settings,
 } from 'lucide-react';
-import type { TranscriptionResult } from '../shared/types';
+import type { TranscriptionResult, SubtitleStyle } from '../shared/types';
 import { exportSRT } from '../api/ffmpeg';
 import { transcribeFile, checkModelCached, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
 import type { WhisperModel } from '../api/whisper';
+import { SubtitleSettingsModal, DEFAULT_SUBTITLE_STYLE } from './SubtitleSettingsModal';
 
 interface Props {
   result?: TranscriptionResult | null;
@@ -14,6 +15,8 @@ interface Props {
   onSeek?: (timeMs: number) => void;
   videoFile?: File | null;
   transcodedVideoSrc?: string;
+  subtitleStyle?: SubtitleStyle;
+  onSubtitleStyleChange?: (style: SubtitleStyle) => void;
 }
 
 interface EditableSegment { from: number; to: number; text: string }
@@ -51,6 +54,8 @@ export const TranscriptionPanel: React.FC<Props> = ({
   onSeek,
   videoFile,
   transcodedVideoSrc,
+  subtitleStyle,
+  onSubtitleStyleChange,
 }) => {
   const [internalResult, setInternalResult] = useState<TranscriptionResult | null>(null);
   const result = externalResult ?? internalResult;
@@ -72,10 +77,18 @@ export const TranscriptionPanel: React.FC<Props> = ({
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [cachedModels, setCachedModels] = useState<Partial<Record<WhisperModel, boolean>>>({});
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const tcEditRef   = useRef<HTMLInputElement>(null);
+
+  // Internal subtitle style if parent doesn't provide one
+  const [internalStyle, setInternalStyle] = useState<SubtitleStyle>(DEFAULT_SUBTITLE_STYLE);
+  const currentStyle = subtitleStyle ?? internalStyle;
+  const handleStyleChange = (s: SubtitleStyle) => {
+    setInternalStyle(s);
+    onSubtitleStyleChange?.(s);
+  };
 
   useEffect(() => {
     if (result) {
@@ -104,21 +117,17 @@ export const TranscriptionPanel: React.FC<Props> = ({
     if (!videoFile || transcribing) return;
     setTranscribing(true);
     setTranscribeProgress(0);
-    setTranscribeStatus('Starting…');
+    setTranscribeStatus('Starting...');
     setTranscribeError(null);
     try {
-      // Prefer the transcoded H.264 file (much smaller, AAC audio) when available.
-      // This avoids loading a 700MB+ ProRes file into Web Audio API.
       let fileForTranscription: File = videoFile;
       if (transcodedVideoSrc) {
         try {
-          setTranscribeStatus('Preparing audio…');
+          setTranscribeStatus('Preparing audio...');
           const response = await fetch(transcodedVideoSrc);
           const blob = await response.blob();
           fileForTranscription = new File([blob], 'transcoded.mp4', { type: 'video/mp4' });
-        } catch {
-          // Fall back to original file if fetch fails
-        }
+        } catch { /* Fall back to original */ }
       }
       const res = await transcribeFile(fileForTranscription, {
         model: selectedModel,
@@ -130,7 +139,6 @@ export const TranscriptionPanel: React.FC<Props> = ({
       });
       setInternalResult(res);
       onTranscriptionDone?.(res);
-      // Mark this model as cached now that it's been downloaded
       setCachedModels(prev => ({ ...prev, [selectedModel]: true }));
     } catch (err) {
       setTranscribeError(err instanceof Error ? err.message : String(err));
@@ -233,8 +241,8 @@ export const TranscriptionPanel: React.FC<Props> = ({
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setShowSettings(s => !s); }} title="Model settings">
-            <Settings size={13} style={{ color: showSettings ? 'var(--color-accent)' : 'var(--color-text-muted)' }} />
+          <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setShowSettingsModal(true); }} title="Transcription & subtitle settings">
+            <Settings size={13} style={{ color: 'var(--color-text-muted)' }} />
           </button>
           <button className="btn btn-icon btn-sm" onClick={e => { e.stopPropagation(); setCollapsed(c => !c); }}>
             {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
@@ -244,60 +252,11 @@ export const TranscriptionPanel: React.FC<Props> = ({
 
       {!collapsed && <div className="card-content">
 
-      {/* ── Settings panel ── */}
-      {showSettings && (
-        <div style={{ marginBottom: '10px', padding: '10px', background: 'var(--color-bg-tertiary)', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontSize: '0.72rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Settings size={12} /> Model Settings
-          </div>
-          {WHISPER_MODELS.map(m => {
-            const isCached = cachedModels[m.id] === true;
-            const isActive = selectedModel === m.id;
-            return (
-              <div key={m.id} style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '6px 8px', borderRadius: '4px',
-                background: isActive ? 'rgba(124,58,237,0.15)' : 'transparent',
-                border: isActive ? '1px solid rgba(124,58,237,0.4)' : '1px solid transparent',
-              }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, flex: 1 }}>{m.label}</span>
-                <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>{m.size}</span>
-                {isCached ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', color: 'var(--color-success)' }}>
-                    <CheckCircle2 size={11} /> Cached
-                  </span>
-                ) : (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>
-                    <Download size={11} /> Not cached
-                  </span>
-                )}
-                {!isActive && (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setSelectedModel(m.id)}
-                    style={{ fontSize: '0.62rem', padding: '2px 6px' }}
-                  >
-                    Use
-                  </button>
-                )}
-                {isActive && (
-                  <span style={{ fontSize: '0.62rem', color: 'var(--color-accent)', fontWeight: 700 }}>Active</span>
-                )}
-              </div>
-            );
-          })}
-          <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: 0 }}>
-            Models are downloaded automatically on first use and cached for future sessions.
-          </p>
-        </div>
-      )}
-
       {/* Controls — shown when no result yet */}
       {!result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {videoFile ? (
             <>
-              {/* Compact: language + transcribe (model shown in active label) */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: '1', minWidth: '110px' }}>
                   <label style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Language</label>
@@ -319,13 +278,12 @@ export const TranscriptionPanel: React.FC<Props> = ({
                   style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '5px 14px' }}
                 >
                   {transcribing
-                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />{transcribeStatus || 'Working…'}</>
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />{transcribeStatus || 'Working...'}</>
                     : <><Play size={14} />Transcribe</>
                   }
                 </button>
               </div>
 
-              {/* Using model label */}
               <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: 0 }}>
                 Using: {WHISPER_MODELS.find(m => m.id === selectedModel)?.label}
                 {cachedModels[selectedModel] ? ' ✓' : ` (${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} download)`}
@@ -337,7 +295,7 @@ export const TranscriptionPanel: React.FC<Props> = ({
                     <div style={{ height: '100%', width: `${transcribeProgress}%`, background: 'var(--color-accent)', transition: 'width 0.3s ease' }} />
                   </div>
                   <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
-                    Downloading model… {transcribeProgress}%
+                    Downloading model... {transcribeProgress}%
                   </p>
                 </div>
               )}
@@ -436,6 +394,18 @@ export const TranscriptionPanel: React.FC<Props> = ({
       )}
 
       </div>}
+
+      {/* Settings modal */}
+      {showSettingsModal && (
+        <SubtitleSettingsModal
+          style={currentStyle}
+          onChange={handleStyleChange}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          cachedModels={cachedModels}
+          onClose={() => setShowSettingsModal(false)}
+        />
+      )}
     </div>
   );
 };

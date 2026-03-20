@@ -97,9 +97,21 @@ export interface NativeExportBlock {
 }
 
 export interface NativeExportCodec {
-  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy';
+  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy' | 'xdcam' | 'dnxhd' | 'dnxhr';
   quality: 'high' | 'medium' | 'draft';
   streamCopy?: boolean;
+}
+
+/** Upload a text asset (ASS subtitle file) to the helper, returns the temp path */
+export async function uploadTextAsset(content: string, ext: string): Promise<string> {
+  const res = await fetch(`${HELPER_URL}/upload-asset?ext=${ext}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: new TextEncoder().encode(content),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.path;
 }
 
 /** Start a native export job */
@@ -108,6 +120,7 @@ export async function startNativeExport(opts: {
   blocks: NativeExportBlock[];
   codec: NativeExportCodec;
   outputPath: string;
+  assPath?: string;
 }): Promise<string> {
   const res = await fetch(`${HELPER_URL}/export`, {
     method: 'POST',
@@ -138,15 +151,16 @@ export async function runNativeExport(
   blocks: { type: 'slate' | 'video' | 'black'; duration: number; slatePng?: Uint8Array }[],
   codec: NativeExportCodec,
   onProgress: (pct: number, label: string) => void,
+  subtitleBurnIn?: import('./ffmpeg').SubtitleBurnIn,
 ): Promise<string> {
   // Upload video to helper
-  onProgress(0, 'Uploading video to helper…');
+  onProgress(0, 'Uploading video to helper...');
   const inputPath = await uploadVideo(videoFile, (pct) => {
-    onProgress(Math.round(pct * 0.4), `Uploading video… ${pct}%`);
+    onProgress(Math.round(pct * 0.4), `Uploading video... ${pct}%`);
   });
 
   // Upload slate assets
-  onProgress(42, 'Uploading assets…');
+  onProgress(42, 'Uploading assets...');
   const exportBlocks: NativeExportBlock[] = [];
   for (const b of blocks) {
     if (b.type === 'slate' && b.slatePng) {
@@ -157,16 +171,28 @@ export async function runNativeExport(
     }
   }
 
+  // Upload ASS subtitle file if burn-in requested
+  let assPath: string | undefined;
+  if (subtitleBurnIn && subtitleBurnIn.segments.length > 0) {
+    onProgress(43, 'Uploading subtitles...');
+    // We need to generate the ASS here — import the generator
+    const { generateASSForNative } = await import('./ffmpeg');
+    const assContent = generateASSForNative(subtitleBurnIn);
+    assPath = await uploadTextAsset(assContent, 'ass');
+  }
+
   // Pick output path via native save dialog
-  const ext = codec.codec.startsWith('prores') ? 'mov' : 'mp4';
+  const ext = codec.codec.startsWith('prores') ? 'mov'
+    : (codec.codec === 'xdcam' || codec.codec === 'dnxhd' || codec.codec === 'dnxhr') ? 'mxf'
+    : 'mp4';
   const baseName = videoFile.name.replace(/\.[^.]+$/, '') || 'output';
   onProgress(45, 'Save dialog opened — check your taskbar');
   const outputPath = await pickSaveFile(`${baseName}_export.${ext}`);
   if (!outputPath) throw new Error('Export cancelled');
 
   // Start export
-  onProgress(48, 'Starting FFmpeg…');
-  await startNativeExport({ inputPath, blocks: exportBlocks, codec, outputPath });
+  onProgress(48, 'Starting FFmpeg...');
+  await startNativeExport({ inputPath, blocks: exportBlocks, codec, outputPath, assPath });
 
   // Poll progress
   return new Promise((resolve, reject) => {

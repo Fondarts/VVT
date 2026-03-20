@@ -39,14 +39,23 @@ const LOGO_PAD = 50;
 interface Props {
   videoFile?: File | null;
   onAddSlateBlock?: (block: TimelineBlock) => void;
+  videoWidth?: number;
+  videoHeight?: number;
 }
 
-export const SlateCreator: React.FC<Props> = ({ videoFile, onAddSlateBlock }) => {
+export const SlateCreator: React.FC<Props> = ({ videoFile, onAddSlateBlock, videoWidth, videoHeight }) => {
   const [fields, setFields] = useState<SlateField[]>(DEFAULT_FIELDS);
   const [bgColor, setBgColor] = useState('#333333');
   const [sepColor, setSepColor] = useState('#999999');
   const [separator, setSeparator] = useState<'/' | ':'>('/');
-  const [resolution, setResolution] = useState<'1920x1080' | '3840x2160'>('1920x1080');
+  const [resolution, setResolution] = useState('1920x1080');
+
+  // Auto-set resolution from video dimensions
+  React.useEffect(() => {
+    if (videoWidth && videoHeight) {
+      setResolution(`${videoWidth}x${videoHeight}`);
+    }
+  }, [videoWidth, videoHeight]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
   const [logoCorner, setLogoCorner] = useState<LogoCorner>('top-right');
@@ -234,8 +243,11 @@ export const SlateCreator: React.FC<Props> = ({ videoFile, onAddSlateBlock }) =>
           {separator === '/' ? '/ → :' : ': → /'}
         </button>
 
-        <select className="input" value={resolution} onChange={e => setResolution(e.target.value as typeof resolution)}
+        <select className="input" value={resolution} onChange={e => setResolution(e.target.value)}
           style={{ fontSize: '0.72rem', padding: '2px 6px', width: 'auto' }}>
+          {videoWidth && videoHeight && videoWidth !== 1920 && videoWidth !== 3840 && (
+            <option value={`${videoWidth}x${videoHeight}`}>{videoWidth}×{videoHeight} (video)</option>
+          )}
           <option value="1920x1080">1920×1080</option>
           <option value="3840x2160">3840×2160</option>
         </select>

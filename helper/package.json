@@ -1,0 +1,15 @@
+{
+  "name": "kissd-export-helper",
+  "version": "1.0.0",
+  "description": "KISSD Export Helper - Native FFmpeg companion for the KISSD web app",
+  "main": "server.js",
+  "bin": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "npx pkg server.js --target node18-win-x64 --output dist/KissdHelper.exe --compress GZip"
+  },
+  "pkg": {
+    "assets": [],
+    "targets": ["node18-win-x64"]
+  }
+}

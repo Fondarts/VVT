@@ -1543,7 +1543,7 @@ export interface ExportBlock {
 }
 
 export interface ExportCodecConfig {
-  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy';
+  codec: 'h264' | 'prores' | 'prores_lt' | 'prores_proxy' | 'xdcam' | 'dnxhd' | 'dnxhr';
   quality: 'high' | 'medium' | 'draft';
   streamCopy?: boolean;
 }
@@ -1570,12 +1570,80 @@ function codecArgs(cfg: ExportCodecConfig, hasAudio: boolean): { vArgs: string[]
   };
 }
 
+export interface SubtitleBurnIn {
+  segments: { from: number; to: number; text: string }[];
+  style: import('../shared/types').SubtitleStyle;
+  maxCharsPerLine: number;
+}
+
+/** Generate an ASS subtitle string for burn-in */
+export function generateASSForNative(burn: SubtitleBurnIn, width = 1920, height = 1080): string {
+  return generateASS(burn, width, height);
+}
+
+function generateASS(burn: SubtitleBurnIn, width: number, height: number): string {
+  const s = burn.style;
+  const scale = height / 1080;
+  const fs = Math.round(s.fontSize * scale);
+  const outline = Math.round(s.strokeWidth * scale);
+  const marginV = Math.round(50 * scale);
+  // ASS color format: &HAABBGGRR (hex, reversed from RGB)
+  const assColor = (hex: string) => {
+    const r = hex.slice(1, 3); const g = hex.slice(3, 5); const b = hex.slice(5, 7);
+    return `&H00${b}${g}${r}`.toUpperCase();
+  };
+  const bgAlpha = s.showBackground ? '80' : 'FF';
+  const backColor = `&H${bgAlpha}000000`;
+  const borderStyle = s.showBackground ? 3 : 1; // 3 = opaque box, 1 = outline+shadow
+
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${width}
+PlayResY: ${height}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,${s.fontFamily},${fs},${assColor(s.color)},${assColor(s.color)},${assColor(s.strokeColor)},${backColor},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,2,20,20,${marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+
+  const wrapText = (text: string, maxCpl: number): string => {
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let line = '';
+    for (const word of words) {
+      if (line && (line.length + 1 + word.length) > maxCpl) { lines.push(line); line = word; }
+      else { line = line ? `${line} ${word}` : word; }
+    }
+    if (line) lines.push(line);
+    return lines.join('\\N');
+  };
+
+  const formatTime = (ms: number) => {
+    const totalSec = ms / 1000;
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const sec = totalSec % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
+  };
+
+  const events = burn.segments.map(seg => {
+    const text = wrapText(seg.text, burn.maxCharsPerLine);
+    return `Dialogue: 0,${formatTime(seg.from)},${formatTime(seg.to)},Default,,0,0,0,,${text}`;
+  }).join('\n');
+
+  return `${header}\n${events}\n`;
+}
+
 export async function exportTimeline(
   videoFile: File,
   blocks: ExportBlock[],
   opts?: {
     onProgress?: (pct: number, label: string) => void;
     codec?: ExportCodecConfig;
+    subtitleBurnIn?: SubtitleBurnIn;
   },
 ): Promise<string> {
   const ff = await loadFFmpeg();
@@ -1617,6 +1685,16 @@ export async function exportTimeline(
 
   const clipFiles: string[] = [];
   const allTempFiles: string[] = [inputName];
+
+  // Write ASS subtitle file if burn-in requested
+  const assName = 'subs.ass';
+  let hasSubBurnIn = false;
+  if (opts?.subtitleBurnIn && opts.subtitleBurnIn.segments.length > 0) {
+    const assContent = generateASS(opts.subtitleBurnIn, width, height);
+    await ff.writeFile(assName, new TextEncoder().encode(assContent));
+    allTempFiles.push(assName);
+    hasSubBurnIn = true;
+  }
 
   // Progress budget: 8-80% for building clips, 80-95% for concat
   const clipBudget = 72;  // percent points
@@ -1678,8 +1756,8 @@ export async function exportTimeline(
       };
       ff.on('progress', progressHandler);
       try {
-        if (cfg.streamCopy) {
-          // Stream copy — no re-encode, fast
+        if (cfg.streamCopy && !hasSubBurnIn) {
+          // Stream copy — no re-encode, fast (only if no subtitle burn-in)
           await ff.exec([
             '-threads', '1',
             '-i', inputName,
@@ -1688,10 +1766,13 @@ export async function exportTimeline(
             '-y', clipName,
           ]);
         } else {
+          const vfFilters: string[] = [];
+          if (hasSubBurnIn) vfFilters.push(`ass=${assName}`);
           await ff.exec([
             '-threads', '1',
             '-i', inputName,
             ...enc.vArgs,
+            ...(vfFilters.length ? ['-vf', vfFilters.join(',')] : []),
             '-pix_fmt', enc.pixFmt,
             ...enc.aArgs,
             ...(cfg.codec === 'h264' ? ['-movflags', '+faststart'] : []),

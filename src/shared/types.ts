@@ -171,6 +171,17 @@ export interface TranscriptionResult {
   language?: string;
 }
 
+export interface SubtitleStyle {
+  maxCharsPerLine: number;
+  fontFamily: string;
+  fontSize: number;          // px relative to 1080p
+  color: string;             // hex
+  strokeColor: string;       // hex
+  strokeWidth: number;       // px
+  showBackground: boolean;
+  backgroundColor: string;   // hex with alpha
+}
+
 export interface ValidationReport {
   timestamp: string;
   presetUsed: string;
