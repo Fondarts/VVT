@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import { FolderPlus, Upload, Loader2 } from 'lucide-react';
-import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
@@ -14,33 +13,87 @@ interface Props {
   userId: string;
   onNavigate: (path: string) => void;
   onGoToDashboard: () => void;
-  onFileOpen: (file: ProjectFile) => void;
+  onFileOpen: (file: File) => void;
 }
 
 export const ProjectView: React.FC<Props> = ({
   projectId, projectName, path, breadcrumbs, userId,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
-  const { folders, versionGroups, loading, addFiles, createFolder } = useProjectFiles(projectId, path);
+  const { folders, versionGroups, loading, addFiles, createFolder, getLocalFile } = useProjectFiles(projectId, path);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
 
+  // Recursively read all files from a dropped directory entry
+  const readEntryFiles = useCallback(async (entry: FileSystemEntry, basePath: string): Promise<{ file: File; relativePath: string }[]> => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      return [{ file, relativePath: basePath }];
+    }
+    if (entry.isDirectory) {
+      const dirReader = (entry as FileSystemDirectoryEntry).createReader();
+      const entries = await new Promise<FileSystemEntry[]>((res, rej) => dirReader.readEntries(res, rej));
+      const subPath = basePath === '' ? entry.name : `${basePath}/${entry.name}`;
+      const results: { file: File; relativePath: string }[] = [];
+      for (const child of entries) {
+        results.push(...await readEntryFiles(child, subPath));
+      }
+      return results;
+    }
+    return [];
+  }, []);
+
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const files: File[] = [];
-    for (let i = 0; i < e.dataTransfer.files.length; i++) {
-      files.push(e.dataTransfer.files[i]);
-    }
-    if (files.length === 0) return;
     setAdding(true);
+
     try {
-      await addFiles(files, projectId, path, userId);
+      const items = e.dataTransfer.items;
+      const entries: FileSystemEntry[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+
+      if (entries.length > 0) {
+        for (const entry of entries) {
+          if (entry.isDirectory) {
+            // Create folder in current path, then add its files inside
+            const folderPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
+            await createFolder(projectId, path, entry.name, userId);
+            const fileEntries = await readEntryFiles(entry, '');
+            for (const { file, relativePath } of fileEntries) {
+              // relativePath is like "subfolder/file.mp4" — create subfolders as needed
+              const parts = relativePath.split('/').filter(Boolean);
+              let currentPath = folderPath;
+              // Create intermediate folders (skip last part which is the filename)
+              for (let i = 0; i < parts.length - 1; i++) {
+                const subName = parts[i];
+                const nextPath = `${currentPath}/${subName}`;
+                await createFolder(projectId, currentPath, subName, userId);
+                currentPath = nextPath;
+              }
+              await addFiles([file], projectId, currentPath, userId);
+            }
+          } else {
+            const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+            await addFiles([file], projectId, path, userId);
+          }
+        }
+      } else {
+        // Fallback for browsers without webkitGetAsEntry
+        const files: File[] = [];
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          files.push(e.dataTransfer.files[i]);
+        }
+        if (files.length > 0) await addFiles(files, projectId, path, userId);
+      }
     } finally {
       setAdding(false);
     }
-  }, [addFiles, projectId, path, userId]);
+  }, [addFiles, createFolder, readEntryFiles, projectId, path, userId]);
 
   return (
     <>
@@ -88,7 +141,22 @@ export const ProjectView: React.FC<Props> = ({
             folders={folders}
             versionGroups={versionGroups}
             onFolderClick={onNavigate}
-            onFileDoubleClick={onFileOpen}
+            onFileDoubleClick={(pf) => {
+              const localFile = getLocalFile(pf);
+              if (localFile) {
+                onFileOpen(localFile);
+              } else {
+                // File not in cache — ask user to pick it
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'video/*,image/*,audio/*';
+                input.onchange = () => {
+                  const f = input.files?.[0];
+                  if (f) onFileOpen(f);
+                };
+                input.click();
+              }
+            }}
           />
         )}
 

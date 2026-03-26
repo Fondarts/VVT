@@ -53,12 +53,12 @@ import { useFeedback } from './hooks/useFeedback';
 import { ToastProvider, useToast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectDashboard } from './components/projects/ProjectDashboard';
-import type { ProjectFile } from './shared/types';
+
 
 const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
-  const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('single');
+  const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('projects');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -401,19 +401,9 @@ const App: React.FC = () => {
         {mode === 'projects' && user && (
           <ProjectDashboard
             userId={user.uid}
-            onFileOpen={(_pf: ProjectFile) => {
-              // Open file picker so user can locate the file from Drive Desktop
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.accept = 'video/*,image/*,audio/*';
-              input.onchange = () => {
-                const file = input.files?.[0];
-                if (file) {
-                  handleFileSelected(file);
-                  setMode('single');
-                }
-              };
-              input.click();
+            onFileOpen={(file: File) => {
+              handleFileSelected(file);
+              setMode('single');
             }}
           />
         )}

@@ -1,5 +1,4 @@
 import React from 'react';
-import type { ProjectFile } from '../../shared/types';
 import { useProjectNav } from '../../hooks/useProjectNav';
 import { useProjects } from '../../hooks/useProjects';
 import { ProjectGrid } from './ProjectGrid';
@@ -8,7 +7,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 
 interface Props {
   userId: string;
-  onFileOpen: (file: ProjectFile) => void;
+  onFileOpen: (file: File) => void;
 }
 
 export const ProjectDashboard: React.FC<Props> = ({ userId, onFileOpen }) => {
