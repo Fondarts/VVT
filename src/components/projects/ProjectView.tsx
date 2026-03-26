@@ -1,9 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { FolderPlus, Upload, Loader2, LayoutGrid, List, HardDrive, Check } from 'lucide-react';
+import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
 import { useToast } from '../Toast';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
-import { useHelperDirectory } from '../../hooks/useHelperDirectory';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
 import { CreateFolderModal } from './CreateFolderModal';
@@ -24,17 +23,7 @@ export const ProjectView: React.FC<Props> = ({
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
   const { addToast } = useToast();
-  const helper = useHelperDirectory();
-  const findFilePath = useCallback(async (fileName: string): Promise<string | null> => {
-    if (!helper.connected || !helper.directoryPath) return null;
-    const { findFileViaHelper } = await import('../../utils/helperFileAccess');
-    return findFileViaHelper(helper.directoryPath, fileName);
-  }, [helper.connected, helper.directoryPath]);
-
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(
-    projectId, path,
-    helper.connected ? findFilePath : undefined,
-  );
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -141,17 +130,6 @@ export const ProjectView: React.FC<Props> = ({
               <List size={14} />
             </button>
           </div>
-          {helper.available && (
-            <button
-              className={`btn btn-sm ${helper.connected ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={helper.connectDirectory}
-              title={helper.connected ? `Connected: ${helper.directoryPath}` : 'Connect a local folder for direct file access'}
-              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px' }}
-            >
-              {helper.connected ? <Check size={13} /> : <HardDrive size={13} />}
-              <span style={{ fontSize: '0.75rem' }}>{helper.connected ? helper.directoryName : 'Connect Drive'}</span>
-            </button>
-          )}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
             <FolderPlus size={14} /> New Folder
           </button>
@@ -200,30 +178,12 @@ export const ProjectView: React.FC<Props> = ({
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              // 1. Memory cache → File object
-              const cached = getLocalFile(pf);
-              if (cached) { onFileOpen(cached, ctx); return; }
+              // Try memory cache then OPFS persistent cache
+              const resolved = await resolveLocalFile(pf);
+              if (resolved) { onFileOpen(resolved, ctx); return; }
 
-              // 2. resolveLocalFile → saved path or helper search
-              if (helper.connected || pf.localPath) {
-                addToast(`Opening ${pf.name}...`, 'info');
-                const result = await resolveLocalFile(pf);
-                if (result?.file) { onFileOpen(result.file, ctx); return; }
-                if (result?.streamUrl) {
-                  try {
-                    const resp = await fetch(result.streamUrl);
-                    const blob = await resp.blob();
-                    const file = new File([blob], pf.name, { type: blob.type });
-                    onFileOpen(file, ctx);
-                    return;
-                  } catch (e) {
-                    console.warn('Helper stream failed:', e);
-                  }
-                }
-                addToast(`File not found. Select it manually.`, 'warning');
-              }
-
-              // 3. Fallback: file picker
+              // Not in cache — ask user to select it
+              addToast('File not in cache. Select it to open.', 'info');
               const input = document.createElement('input');
               input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
               input.onchange = () => {

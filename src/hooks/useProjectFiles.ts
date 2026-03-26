@@ -11,6 +11,7 @@ import {
   updateFileVersionNumber,
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
+import { cacheFile, getCachedFile } from '../utils/fileCache';
 
 // Global cache: files dropped in this session are kept in memory
 // so double-click can open them without re-picking
@@ -33,14 +34,13 @@ export interface UseProjectFilesReturn {
   reorderVersion: (fileId: string, newVersionNumber: number) => Promise<void>;
   /** Get file from memory cache (sync) */
   getLocalFile: (pf: ProjectFile) => File | null;
-  /** Get file from memory cache or helper (async). Returns File or stream URL */
-  resolveLocalFile: (pf: ProjectFile) => Promise<{ file?: File; streamUrl?: string } | null>;
+  /** Get file from memory cache or OPFS persistent cache */
+  resolveLocalFile: (pf: ProjectFile) => Promise<File | null>;
 }
 
 export function useProjectFiles(
   projectId: string | null,
   parentPath: string,
-  findFilePath?: (fileName: string) => Promise<string | null>,
 ): UseProjectFilesReturn {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [folders, setFolders] = useState<ProjectFolder[]>([]);
@@ -88,14 +88,10 @@ export function useProjectFiles(
       const { baseName, versionTag, versionNumber } = parseVersion(file.name);
       const type = detectFileType(file.name);
 
-      // Cache the File object so double-click can open it later
+      // Cache in memory (instant access this session)
       fileCache.set(cacheKey(file.name, file.size), file);
-
-      // Try to resolve the absolute path via helper (for future sessions)
-      let localPath: string | undefined;
-      if (findFilePath) {
-        try { localPath = (await findFilePath(file.name)) ?? undefined; } catch { /* ignore */ }
-      }
+      // Cache in OPFS (persists across sessions)
+      cacheFile(file).catch(() => {});
 
       await addProjectFile(projId, path, {
         name: file.name,
@@ -106,7 +102,6 @@ export function useProjectFiles(
         extension: ext,
         sizeBytes: file.size,
         scanResult: null,
-        localPath,
       }, userId);
     }
   }, []);
@@ -144,27 +139,18 @@ export function useProjectFiles(
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<{ file?: File; streamUrl?: string } | null> => {
+  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<File | null> => {
     // 1. Memory cache (instant)
     const cached = fileCache.get(cacheKey(pf.name, pf.sizeBytes));
-    if (cached) return { file: cached };
-    // 2. Saved localPath — stream directly via helper (no search needed)
-    if (pf.localPath) {
-      const { getServeFileUrl } = await import('../utils/helperFileAccess');
-      return { streamUrl: getServeFileUrl(pf.localPath) };
-    }
-    // 3. Search via helper
-    if (findFilePath) {
-      try {
-        const foundPath = await findFilePath(pf.name);
-        if (foundPath) {
-          const { getServeFileUrl } = await import('../utils/helperFileAccess');
-          return { streamUrl: getServeFileUrl(foundPath) };
-        }
-      } catch { /* ignore */ }
+    if (cached) return cached;
+    // 2. OPFS persistent cache (survives refresh)
+    const opfs = await getCachedFile(pf.name, pf.sizeBytes);
+    if (opfs) {
+      fileCache.set(cacheKey(pf.name, pf.sizeBytes), opfs); // promote to memory
+      return opfs;
     }
     return null;
-  }, [findFilePath]);
+  }, []);
 
   const reorderVersion = useCallback(async (fileId: string, newVersionNumber: number) => {
     await updateFileVersionNumber(fileId, newVersionNumber);
