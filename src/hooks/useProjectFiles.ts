@@ -7,7 +7,8 @@ import {
   createFolder as createFolderFn,
   deleteProjectFile,
   deleteFolder as deleteFolderFn,
-  updateFileBaseName,
+  updateFileVersionGroup,
+  updateFileVersionNumber,
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
 
@@ -29,6 +30,7 @@ export interface UseProjectFilesReturn {
   removeFile: (fileId: string) => Promise<void>;
   removeFolder: (projectId: string, folderPath: string, folderId: string) => Promise<void>;
   moveToVersionGroup: (fileId: string, targetBaseName: string) => Promise<void>;
+  reorderVersion: (fileId: string, newVersionNumber: number) => Promise<void>;
   getLocalFile: (pf: ProjectFile) => File | null;
 }
 
@@ -113,12 +115,24 @@ export function useProjectFiles(projectId: string | null, parentPath: string): U
   }, []);
 
   const moveToVersionGroup = useCallback(async (fileId: string, targetBaseName: string) => {
-    await updateFileBaseName(fileId, targetBaseName);
-  }, []);
+    // Find the file to get its name and re-parse its version
+    const file = files.find(f => f.id === fileId);
+    if (file) {
+      const { versionTag, versionNumber } = parseVersion(file.name);
+      await updateFileVersionGroup(fileId, targetBaseName, versionTag, versionNumber);
+    } else {
+      // Fallback: just update baseName
+      await updateFileVersionGroup(fileId, targetBaseName, null, 0);
+    }
+  }, [files]);
 
   const getLocalFile = useCallback((pf: ProjectFile): File | null => {
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, getLocalFile };
+  const reorderVersion = useCallback(async (fileId: string, newVersionNumber: number) => {
+    await updateFileVersionNumber(fileId, newVersionNumber);
+  }, []);
+
+  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile };
 }

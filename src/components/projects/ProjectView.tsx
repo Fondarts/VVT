@@ -20,7 +20,7 @@ export const ProjectView: React.FC<Props> = ({
   projectId, projectName, path, breadcrumbs, userId,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, getLocalFile } = useProjectFiles(projectId, path);
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile } = useProjectFiles(projectId, path);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -167,6 +167,7 @@ export const ProjectView: React.FC<Props> = ({
               }
             }}
             onMoveToVersion={(fileId, targetBaseName) => moveToVersionGroup(fileId, targetBaseName)}
+            onReorderVersion={(fileId, newVersionNumber) => reorderVersion(fileId, newVersionNumber)}
             onFileDoubleClick={(pf) => {
               const localFile = getLocalFile(pf);
               if (localFile) {

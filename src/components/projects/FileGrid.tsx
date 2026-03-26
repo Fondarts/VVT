@@ -19,9 +19,10 @@ interface Props {
   onDeleteFolder?: (folder: ProjectFolder) => void;
   onDeleteFile?: (file: ProjectFile) => void;
   onMoveToVersion?: (fileId: string, targetBaseName: string) => void;
+  onReorderVersion?: (fileId: string, newVersionNumber: number) => void;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion, onReorderVersion }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null); // baseName of the group being hovered
 
@@ -186,7 +187,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                   background: dropTarget === g.baseName ? 'rgba(225,255,28,0.08)' : 'rgba(255,255,255,0.01)',
                 }}
               >
-                <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
+                <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} onReorder={onReorderVersion} />
               </div>
             )}
           </React.Fragment>
@@ -239,7 +240,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                   onDragLeave={() => setDropTarget(null)}
                   onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
                 >
-                  <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
+                  <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} onReorder={onReorderVersion} />
                 </div>
               )}
             </React.Fragment>

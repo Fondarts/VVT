@@ -1,17 +1,41 @@
-import React from 'react';
-import { Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Clock, GripVertical } from 'lucide-react';
 import type { ProjectFile } from '../../shared/types';
 
 interface Props {
   versions: ProjectFile[];
   onSelect: (file: ProjectFile) => void;
+  onReorder?: (fileId: string, newVersionNumber: number) => void;
 }
 
-export const VersionHistory: React.FC<Props> = ({ versions, onSelect }) => {
+export const VersionHistory: React.FC<Props> = ({ versions, onSelect, onReorder }) => {
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, file: ProjectFile, idx: number) => {
+    e.stopPropagation();
+    e.dataTransfer.setData('application/versionhistory', JSON.stringify({ fileId: file.id, idx }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverIdx(null);
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/versionhistory'));
+      if (data.fileId && data.idx !== targetIdx && onReorder) {
+        // Assign a versionNumber that places it at the target position
+        // Versions are sorted descending, so idx 0 = highest version
+        const targetVersion = versions[targetIdx];
+        onReorder(data.fileId, targetVersion.versionNumber);
+      }
+    } catch { /* ignore — might be a file-to-group drop */ }
+  };
+
   return (
     <div style={{
       background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
-      borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px',
+      borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
         <Clock size={12} style={{ color: 'var(--color-text-muted)' }} />
@@ -22,28 +46,36 @@ export const VersionHistory: React.FC<Props> = ({ versions, onSelect }) => {
         <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '80px' }}>By</span>
         <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '60px', textAlign: 'right' }}>Size</span>
       </div>
-      {versions.map(v => {
+      {versions.map((v, idx) => {
         const dateStr = v.addedAt
           ? new Date(v.addedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
           : '';
         const author = v.addedBy
           ? (v.addedBy.length > 12 ? v.addedBy.slice(0, 12) + '…' : v.addedBy)
           : '';
+        const isLatest = idx === 0;
 
         return (
           <div
             key={v.id}
+            draggable
+            onDragStart={e => handleDragStart(e, v, idx)}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOverIdx(idx); }}
+            onDragLeave={() => setDragOverIdx(null)}
+            onDrop={e => handleDrop(e, idx)}
             onClick={() => onSelect(v)}
             style={{
               display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '6px 8px', borderRadius: '4px', cursor: 'pointer',
-              background: v === versions[0] ? 'rgba(225,255,28,0.08)' : 'transparent',
+              padding: '5px 8px', borderRadius: '4px', cursor: 'grab',
+              background: dragOverIdx === idx ? 'rgba(225,255,28,0.12)' : isLatest ? 'rgba(225,255,28,0.08)' : 'transparent',
+              borderTop: dragOverIdx === idx ? '2px solid var(--color-accent)' : '2px solid transparent',
             }}
           >
+            <GripVertical size={12} style={{ color: 'var(--color-text-muted)', flexShrink: 0, opacity: 0.4 }} />
             <span style={{
-              background: v === versions[0] ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
-              color: v === versions[0] ? '#000' : 'var(--color-text-muted)',
-              borderRadius: '3px', padding: '1px 5px', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0,
+              background: isLatest ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
+              color: isLatest ? '#000' : 'var(--color-text-muted)',
+              borderRadius: '3px', padding: '1px 5px', fontSize: '0.65rem', fontWeight: 700, flexShrink: 0, minWidth: '28px', textAlign: 'center',
             }}>
               {v.versionTag?.toUpperCase() || 'V0'}
             </span>

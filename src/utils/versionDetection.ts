@@ -1,7 +1,9 @@
 import type { ProjectFile, VersionGroup } from '../shared/types';
 
-const VERSION_PATTERN = /[_\-\s.](?:v|V|rev|REV|r|R|edit|EDIT)(\d{1,3})$/;
-const FINAL_PATTERN = /[_\-\s.](?:final|FINAL|Final)$/;
+// Match version suffixes anywhere in the name (not just at end)
+// We find ALL matches and use the LAST one as the version
+const VERSION_PATTERN_G = /[_\-\s.](?:v|V|rev|REV|r|R|edit|EDIT)(\d{1,3})/g;
+const FINAL_PATTERN = /[_\-\s.](?:final|FINAL|Final)(?=[_\-\s.]|$)/;
 
 export function parseVersion(filename: string): { baseName: string; versionTag: string | null; versionNumber: number } {
   const nameWithoutExt = filename.replace(/\.[^.]+$/, '');
@@ -15,12 +17,19 @@ export function parseVersion(filename: string): { baseName: string; versionTag: 
     };
   }
 
-  const match = nameWithoutExt.match(VERSION_PATTERN);
-  if (match) {
+  // Find the last version-like suffix in the name
+  let lastMatch: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  VERSION_PATTERN_G.lastIndex = 0;
+  while ((m = VERSION_PATTERN_G.exec(nameWithoutExt)) !== null) {
+    lastMatch = m;
+  }
+
+  if (lastMatch) {
     return {
-      baseName: nameWithoutExt.slice(0, match.index!),
-      versionTag: match[0].slice(1),
-      versionNumber: parseInt(match[1], 10),
+      baseName: nameWithoutExt.slice(0, lastMatch.index!),
+      versionTag: lastMatch[0].slice(1),
+      versionNumber: parseInt(lastMatch[1], 10),
     };
   }
 

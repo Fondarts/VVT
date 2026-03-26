@@ -73,11 +73,18 @@ describe('parseVersion', () => {
     expect(r.versionNumber).toBe(5);
   });
 
-  it('preserves complex base names without version suffix', () => {
+  it('detects version even with trailing suffixes', () => {
+    const r = parseVersion('Honda_Fuel_the_Fire_02_v17_colored_VFX.mp4');
+    expect(r.baseName).toBe('Honda_Fuel_the_Fire_02');
+    expect(r.versionTag).toBe('v17');
+    expect(r.versionNumber).toBe(17);
+  });
+
+  it('detects last version when multiple version-like patterns exist', () => {
     const r = parseVersion('Honda_Fuel_the_Fire_01_V02_exp.mp4');
-    // _exp is NOT a version suffix, so the whole name is baseName
-    expect(r.baseName).toBe('Honda_Fuel_the_Fire_01_V02_exp');
-    expect(r.versionTag).toBeNull();
+    expect(r.baseName).toBe('Honda_Fuel_the_Fire_01');
+    expect(r.versionTag).toBe('V02');
+    expect(r.versionNumber).toBe(2);
   });
 
   it('detects version in complex names', () => {
