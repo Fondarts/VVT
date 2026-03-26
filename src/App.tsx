@@ -52,11 +52,13 @@ import { useTimeline } from './hooks/useTimeline';
 import { useFeedback } from './hooks/useFeedback';
 import { ToastProvider, useToast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ProjectDashboard } from './components/projects/ProjectDashboard';
+import type { ProjectFile } from './shared/types';
 
 const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
-  const [mode, setMode] = useState<'single' | 'batch'>('single');
+  const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('single');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -314,11 +316,19 @@ const App: React.FC = () => {
             </button>
             <button
               className={`btn btn-sm ${mode === 'batch' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ borderRadius: 0 }}
+              style={{ borderRadius: 0, borderRight: '1px solid var(--border-color)' }}
               onClick={() => setMode('batch')}
               aria-pressed={mode === 'batch'}
             >
               Batch
+            </button>
+            <button
+              className={`btn btn-sm ${mode === 'projects' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: 0 }}
+              onClick={() => setMode('projects')}
+              aria-pressed={mode === 'projects'}
+            >
+              Projects
             </button>
           </div>
 
@@ -387,6 +397,33 @@ const App: React.FC = () => {
       </header>
 
       <main className="app-main">
+        {/* Projects mode */}
+        {mode === 'projects' && user && (
+          <ProjectDashboard
+            userId={user.uid}
+            onFileOpen={(_pf: ProjectFile) => {
+              // Open file picker so user can locate the file from Drive Desktop
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = 'video/*,image/*,audio/*';
+              input.onchange = () => {
+                const file = input.files?.[0];
+                if (file) {
+                  handleFileSelected(file);
+                  setMode('single');
+                }
+              };
+              input.click();
+            }}
+          />
+        )}
+        {mode === 'projects' && !user && !authLoading && (
+          <div style={{ textAlign: 'center', padding: '60px 16px', color: 'var(--color-text-muted)' }}>
+            <p style={{ marginBottom: '16px', fontSize: '0.875rem' }}>Sign in to access projects</p>
+            <button className="btn btn-primary" onClick={signIn}>Sign in with Google</button>
+          </div>
+        )}
+
         {/* Batch mode */}
         {mode === 'batch' && (
           <BatchView

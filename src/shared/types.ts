@@ -319,3 +319,47 @@ export interface AudioLoudness {
   output_thresh: number;
   target_offset: number;
 }
+
+// ── Project Dashboard ────────────────────────────────────────────────────────
+
+export interface Project {
+  id: string;
+  name: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectFolder {
+  id: string;
+  projectId: string;
+  path: string;
+  name: string;
+  parentPath: string;
+}
+
+export interface ProjectFile {
+  id: string;
+  projectId: string;
+  parentPath: string;
+  name: string;
+  baseName: string;
+  versionTag: string | null;
+  versionNumber: number;
+  type: 'video' | 'image' | 'audio';
+  extension: string;
+  sizeBytes: number;
+  scanResult: ScanResult | null;
+  addedBy: string;
+  addedAt: string;
+}
+
+export interface VersionGroup {
+  baseName: string;
+  latest: ProjectFile;
+  versions: ProjectFile[];
+}
+
+export type ProjectNavLocation =
+  | { view: 'dashboard' }
+  | { view: 'project'; projectId: string; path: string };
