@@ -607,6 +607,117 @@ const server = http.createServer(async (req, res) => {
     } catch (err) { return json(res, { error: err.message }, 500); }
   }
 
+  // POST /find-file — search for a file by name in a directory tree
+  if (url.pathname === '/find-file' && req.method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const { rootDir, fileName } = body;
+      if (!rootDir || !fileName) return json(res, { error: 'rootDir and fileName required' }, 400);
+      if (!fs.existsSync(rootDir)) return json(res, { error: 'rootDir does not exist' }, 404);
+
+      // Recursive search with depth limit
+      function findFile(dir, name, depth) {
+        if (depth <= 0) return null;
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isFile() && entry.name === name) {
+              return path.join(dir, entry.name);
+            }
+          }
+          for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.')) {
+              const found = findFile(path.join(dir, entry.name), name, depth - 1);
+              if (found) return found;
+            }
+          }
+        } catch { /* skip unreadable dirs */ }
+        return null;
+      }
+
+      const filePath = findFile(rootDir, fileName, 15);
+      return json(res, { path: filePath });
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
+  // GET /serve-file?path=... — stream a file by absolute path
+  if (url.pathname === '/serve-file' && req.method === 'GET') {
+    try {
+      const filePath = url.searchParams.get('path');
+      if (!filePath) return json(res, { error: 'path required' }, 400);
+      if (!fs.existsSync(filePath)) return json(res, { error: 'File not found' }, 404);
+
+      const stat = fs.statSync(filePath);
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      const mimeTypes = {
+        mp4: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska',
+        webm: 'video/webm', avi: 'video/x-msvideo', mxf: 'application/mxf',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp',
+        mp3: 'audio/mpeg', wav: 'audio/wav', aac: 'audio/aac',
+        flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4',
+      };
+      const mime = mimeTypes[ext] || 'application/octet-stream';
+
+      // Support range requests for video seeking
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        const chunkSize = end - start + 1;
+        cors(res);
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': mime,
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+      } else {
+        cors(res);
+        res.writeHead(200, {
+          'Content-Length': stat.size,
+          'Content-Type': mime,
+          'Accept-Ranges': 'bytes',
+        });
+        fs.createReadStream(filePath).pipe(res);
+      }
+      return;
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
+  // POST /pick-directory — native directory picker
+  if (url.pathname === '/pick-directory' && req.method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString() || '{}');
+      const title = body.title || 'Select folder';
+      let dirPath = null;
+      if (process.platform === 'win32') {
+        const ps = `Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.Form; $f.TopMost = $true; $f.WindowState = 'Minimized'; $f.Show(); $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '${title}'; if($d.ShowDialog($f) -eq 'OK'){$d.SelectedPath}; $f.Close()`;
+        dirPath = await new Promise((resolve, reject) => {
+          exec(`powershell -NoProfile -Command "${ps}"`, (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim() || null);
+          });
+        });
+      } else if (process.platform === 'darwin') {
+        dirPath = await new Promise((resolve) => {
+          exec(`osascript -e 'POSIX path of (choose folder with prompt "${title}")'`, (err, stdout) => {
+            resolve(err ? null : stdout.trim() || null);
+          });
+        });
+      } else {
+        dirPath = await new Promise((resolve) => {
+          exec(`zenity --file-selection --directory --title="${title}"`, (err, stdout) => {
+            resolve(err ? null : stdout.trim() || null);
+          });
+        });
+      }
+      return json(res, { path: dirPath });
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
   // GET /export/status
   if (url.pathname === '/export/status' && req.method === 'GET') {
     if (!currentJob) return json(res, { active: false });

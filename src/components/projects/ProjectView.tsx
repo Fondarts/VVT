@@ -3,7 +3,7 @@ import { FolderPlus, Upload, Loader2, LayoutGrid, List, HardDrive, Check } from 
 import { useToast } from '../Toast';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
-import { useDirectoryAccess } from '../../hooks/useDirectoryAccess';
+import { useHelperDirectory } from '../../hooks/useHelperDirectory';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
 import { CreateFolderModal } from './CreateFolderModal';
@@ -24,8 +24,8 @@ export const ProjectView: React.FC<Props> = ({
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
   const { addToast } = useToast();
-  const dirAccess = useDirectoryAccess();
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path, dirAccess.resolveFile);
+  const helper = useHelperDirectory();
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile } = useProjectFiles(projectId, path);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -132,15 +132,15 @@ export const ProjectView: React.FC<Props> = ({
               <List size={14} />
             </button>
           </div>
-          {dirAccess.supported && (
+          {helper.available && (
             <button
-              className={`btn btn-sm ${dirAccess.connected ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={dirAccess.connectDirectory}
-              title={dirAccess.connected ? `Connected: ${dirAccess.directoryName}` : 'Connect a local folder for direct file access'}
+              className={`btn btn-sm ${helper.connected ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={helper.connectDirectory}
+              title={helper.connected ? `Connected: ${helper.directoryPath}` : 'Connect a local folder for direct file access'}
               style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px' }}
             >
-              {dirAccess.connected ? <Check size={13} /> : <HardDrive size={13} />}
-              <span style={{ fontSize: '0.75rem' }}>{dirAccess.connected ? dirAccess.directoryName : 'Connect Drive'}</span>
+              {helper.connected ? <Check size={13} /> : <HardDrive size={13} />}
+              <span style={{ fontSize: '0.75rem' }}>{helper.connected ? helper.directoryName : 'Connect Drive'}</span>
             </button>
           )}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
@@ -191,31 +191,37 @@ export const ProjectView: React.FC<Props> = ({
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              // Try memory cache first, then directory access
-              if (dirAccess.connected) {
+              // 1. Memory cache
+              const cached = getLocalFile(pf);
+              if (cached) { onFileOpen(cached, ctx); return; }
+
+              // 2. Helper server — find + stream from disk
+              if (helper.connected) {
                 addToast(`Searching for ${pf.name}...`, 'info');
+                const fileUrl = await helper.resolveFileUrl(pf.name);
+                if (fileUrl) {
+                  // Create a fake File from the streaming URL so handleFileSelected works
+                  try {
+                    const resp = await fetch(fileUrl);
+                    const blob = await resp.blob();
+                    const file = new File([blob], pf.name, { type: blob.type });
+                    onFileOpen(file, ctx);
+                    return;
+                  } catch (e) {
+                    console.warn('Helper stream failed:', e);
+                  }
+                }
+                addToast(`File not found in ${helper.directoryName}. Select it manually.`, 'warning');
               }
-              const resolved = await resolveLocalFile(pf);
-              if (resolved) {
-                onFileOpen(resolved, ctx);
-              } else if (dirAccess.connected) {
-                addToast(`File not found in ${dirAccess.directoryName}. Select it manually.`, 'warning');
-                const input = document.createElement('input');
-                input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
-                input.onchange = () => {
-                  const f = input.files?.[0];
-                  if (f) onFileOpen(f, ctx);
-                };
-                input.click();
-              } else {
-                const input = document.createElement('input');
-                input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
-                input.onchange = () => {
-                  const f = input.files?.[0];
-                  if (f) onFileOpen(f, ctx);
-                };
-                input.click();
-              }
+
+              // 3. Fallback: file picker
+              const input = document.createElement('input');
+              input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
+              input.onchange = () => {
+                const f = input.files?.[0];
+                if (f) onFileOpen(f, ctx);
+              };
+              input.click();
             }}
           />
         )}
