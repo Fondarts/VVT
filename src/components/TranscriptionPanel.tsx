@@ -28,16 +28,7 @@ function loadCustomFonts(): string[] {
 function saveCustomFonts(fonts: string[]) { localStorage.setItem(CUSTOM_FONTS_KEY, JSON.stringify(fonts)); }
 
 // ── Timecode helpers ─────────────────────────────────────────────
-
-function msToTimecode(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  const frac = Math.floor((ms % 1000) / 10);
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(frac).padStart(2,'0')}`;
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(frac).padStart(2,'0')}`;
-}
+import { msToTimecode } from '../utils/formatTime';
 
 function parseTimecodeToMs(raw: string): number | null {
   const s = raw.trim();

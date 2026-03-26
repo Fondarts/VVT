@@ -10,6 +10,7 @@
 
 import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { formatAssTime } from '../utils/formatTime';
 import type {
   ScanResult,
   FileMetadata,
@@ -1632,17 +1633,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
     return capped.join('\\N');
   };
 
-  const formatTime = (ms: number) => {
-    const totalSec = ms / 1000;
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const sec = totalSec % 60;
-    return `${h}:${String(m).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
-  };
-
   const events = burn.segments.map(seg => {
     const text = wrapText(seg.text, burn.maxCharsPerLine);
-    return `Dialogue: 0,${formatTime(seg.from)},${formatTime(seg.to)},Default,,0,0,0,,${text}`;
+    return `Dialogue: 0,${formatAssTime(seg.from)},${formatAssTime(seg.to)},Default,,0,0,0,,${text}`;
   }).join('\n');
 
   return `${header}\n${events}\n`;

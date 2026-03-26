@@ -37,14 +37,7 @@ interface Props {
 }
 
 
-function formatTimecode(seconds: number, fps: number): string {
-  const f = fps || 25;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const fr = Math.floor((seconds % 1) * f);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(fr).padStart(2, '0')}`;
-}
+import { formatTimecode } from '../utils/formatTime';
 
 export const FeedbackPanel = React.memo<Props>(({
   fileName,

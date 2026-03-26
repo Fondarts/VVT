@@ -17,6 +17,7 @@ import {
 import { overlayPresets } from '../shared/presets';
 import type { TranscriptionSegment, AnnotationStroke, SubtitleStyle } from '../shared/types';
 import { AnnotationCanvas } from './AnnotationCanvas';
+import { formatTimecode } from '../utils/formatTime';
 
 
 /** Word-wrap text to fit maxCharsPerLine, breaking at word boundaries */
@@ -434,14 +435,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
   }, [onTimeUpdate, onVideoReady]);
 
   // Format timecode — standalone so rAF loop can call it
-  const fmtTC = (seconds: number) => {
-    const fps = frameRateRef.current ?? 25;
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const f = Math.floor((seconds % 1) * fps);
-    return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}:${f.toString().padStart(2,'0')}`;
-  };
+  const fmtTC = (seconds: number) => formatTimecode(seconds, frameRateRef.current ?? 25);
 
   // Smooth scrubber + timecode — rAF loop directly updates DOM while playing
   useEffect(() => {
@@ -800,14 +794,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
     onSnapshot?.(video.currentTime);
   }, [onSnapshot]);
 
-  const formatTime = (seconds: number) => {
-    const fps = frameRate || 25;
-    const h   = Math.floor(seconds / 3600);
-    const m   = Math.floor((seconds % 3600) / 60);
-    const s   = Math.floor(seconds % 60);
-    const f   = Math.floor((seconds % 1) * fps);
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`;
-  };
+  const formatTime = (seconds: number) => formatTimecode(seconds, frameRate || 25);
 
   // Find the subtitle segment that matches the current playback time
   const currentTimeMs = currentTime * 1000;

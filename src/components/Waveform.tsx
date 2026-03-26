@@ -10,12 +10,7 @@ interface WaveformProps {
   defaultCollapsed?: boolean;
 }
 
-function formatTime(secs: number): string {
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}`;
-}
+import { formatDuration as formatTime } from '../utils/formatTime';
 
 function dBToLinear(dB: number): number {
   return Math.pow(10, dB / 20);
