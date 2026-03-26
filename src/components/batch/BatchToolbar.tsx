@@ -54,9 +54,10 @@ export const BatchToolbar: React.FC<BatchToolbarProps> = ({ items, onScanAll, on
 
       <button
         className="btn btn-secondary btn-sm"
-        onClick={onClear}
+        onClick={() => { if (items.length <= 1 || window.confirm(`Clear all ${items.length} files?`)) onClear(); }}
         style={{ marginLeft: 'auto', padding: '6px 10px' }}
         title="Clear all"
+        aria-label="Clear all files"
       >
         <Trash2 size={14} />
       </button>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import type { ValidationCheck, ScanResult } from '../shared/types';
 
@@ -30,7 +30,7 @@ export const CheckResults = React.memo<CheckResultsProps>(({ checks, noPreset, s
   const toggle = (key: string) =>
     setExpandedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
-  const checkMap = new Map(checks.map(c => [c.id, c]));
+  const checkMap = useMemo(() => new Map(checks.map(c => [c.id, c])), [checks]);
   const hasPreset = !noPreset && checks.length > 0;
 
   const findCheck = (ids: string | string[] | undefined): ValidationCheck | undefined => {
