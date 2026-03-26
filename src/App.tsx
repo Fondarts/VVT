@@ -53,6 +53,7 @@ import { useFeedback } from './hooks/useFeedback';
 import { ToastProvider, useToast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectDashboard } from './components/projects/ProjectDashboard';
+import { HelperStatus } from './components/HelperStatus';
 import { VersionBar } from './components/projects/VersionBar';
 import { VersionCompare } from './components/projects/VersionCompare';
 import type { ProjectFile } from './shared/types';
@@ -312,6 +313,7 @@ const App: React.FC = () => {
         <div className="logo">
           <img src="/icons/kissd-logo.svg" alt="KISSD" style={{ height: '22px', width: 'auto', display: 'block' }} />
           <span style={{ color: 'var(--color-text-primary)' }}>Review V03</span>
+          <HelperStatus />
         </div>
         <div className="header-actions">
           {/* Mode toggle */}
