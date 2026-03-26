@@ -479,20 +479,86 @@ input[type="checkbox"] {
   animation: spin 1s linear infinite;
 }
 
-/* Responsive */
+/* Responsive — tablet */
 @media (max-width: 1024px) {
   .results-container {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .results-column {
+    height: auto !important;
+    position: relative !important;
   }
 
   .app-header {
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
+    padding: var(--spacing-sm) var(--spacing-md);
   }
 
   .header-actions {
     width: 100%;
     justify-content: center;
     flex-wrap: wrap;
+  }
+
+  .app-main {
+    padding: var(--spacing-md);
+  }
+}
+
+/* Responsive — mobile */
+@media (max-width: 640px) {
+  .app-main {
+    padding: var(--spacing-sm);
+  }
+
+  .app-header {
+    padding: var(--spacing-sm);
+    gap: 8px;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .btn {
+    font-size: 0.8rem;
+    padding: 6px 10px;
+  }
+
+  .btn-sm {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+  }
+
+  .card {
+    border-radius: 8px;
+  }
+
+  .tab-nav {
+    gap: 0;
+  }
+
+  .tab-btn {
+    font-size: 0.75rem;
+    padding: 8px 10px;
+  }
+
+  .dropzone {
+    padding: 32px 16px;
+  }
+
+  .dropzone h3 {
+    font-size: 1rem;
+  }
+
+  .results-container {
+    gap: 12px;
+  }
+
+  .select {
+    font-size: 0.75rem;
   }
 }
