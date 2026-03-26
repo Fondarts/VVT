@@ -156,13 +156,10 @@ export async function addProjectFile(
   },
   userId: string,
 ): Promise<string> {
-  const ref = await addDoc(collection(db, FILES), {
-    projectId,
-    parentPath,
-    ...fileData,
-    addedBy: userId,
-    addedAt: serverTimestamp(),
-  });
+  // Filter out undefined values — Firestore rejects them
+  const data: Record<string, unknown> = { projectId, parentPath, ...fileData, addedBy: userId, addedAt: serverTimestamp() };
+  for (const key of Object.keys(data)) { if (data[key] === undefined) delete data[key]; }
+  const ref = await addDoc(collection(db, FILES), data);
   await touchProject(projectId);
   return ref.id;
 }
