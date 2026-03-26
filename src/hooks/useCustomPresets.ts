@@ -33,7 +33,11 @@ export function useCustomPresets(): UseCustomPresetsReturn {
   });
 
   useEffect(() => {
-    localStorage.setItem('customPresets', JSON.stringify(customPresets));
+    try {
+      localStorage.setItem('customPresets', JSON.stringify(customPresets));
+    } catch (e) {
+      console.warn('Failed to save presets to localStorage:', e);
+    }
   }, [customPresets]);
 
   const [showCustomModal, setShowCustomModal] = useState(false);
