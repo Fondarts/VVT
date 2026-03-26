@@ -26,24 +26,31 @@ export const ProjectView: React.FC<Props> = ({
   const [adding, setAdding] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  // Recursively read all files from a dropped directory entry
-  const readEntryFiles = useCallback(async (entry: FileSystemEntry, basePath: string): Promise<{ file: File; relativePath: string }[]> => {
-    if (entry.isFile) {
-      const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
-      return [{ file, relativePath: basePath }];
-    }
-    if (entry.isDirectory) {
-      const dirReader = (entry as FileSystemDirectoryEntry).createReader();
-      const entries = await new Promise<FileSystemEntry[]>((res, rej) => dirReader.readEntries(res, rej));
-      const subPath = basePath === '' ? entry.name : `${basePath}/${entry.name}`;
-      const results: { file: File; relativePath: string }[] = [];
-      for (const child of entries) {
-        results.push(...await readEntryFiles(child, subPath));
-      }
-      return results;
-    }
-    return [];
+  // Read ALL entries from a directory (readEntries can return batches)
+  const readAllEntries = useCallback(async (dirReader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => {
+    const all: FileSystemEntry[] = [];
+    let batch: FileSystemEntry[];
+    do {
+      batch = await new Promise<FileSystemEntry[]>((res, rej) => dirReader.readEntries(res, rej));
+      all.push(...batch);
+    } while (batch.length > 0);
+    return all;
   }, []);
+
+  // Recursively process a directory: create folders in Firestore and add files
+  const processDirectory = useCallback(async (dirEntry: FileSystemDirectoryEntry, parentPath: string) => {
+    const children = await readAllEntries(dirEntry.createReader());
+    for (const child of children) {
+      if (child.isFile) {
+        const file = await new Promise<File>((res, rej) => (child as FileSystemFileEntry).file(res, rej));
+        await addFiles([file], projectId, parentPath, userId);
+      } else if (child.isDirectory) {
+        const subPath = parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`;
+        await createFolder(projectId, parentPath, child.name, userId);
+        await processDirectory(child as FileSystemDirectoryEntry, subPath);
+      }
+    }
+  }, [addFiles, createFolder, readAllEntries, projectId, userId]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -61,23 +68,9 @@ export const ProjectView: React.FC<Props> = ({
       if (entries.length > 0) {
         for (const entry of entries) {
           if (entry.isDirectory) {
-            // Create folder in current path, then add its files inside
             const folderPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
             await createFolder(projectId, path, entry.name, userId);
-            const fileEntries = await readEntryFiles(entry, '');
-            for (const { file, relativePath } of fileEntries) {
-              // relativePath is like "subfolder/file.mp4" — create subfolders as needed
-              const parts = relativePath.split('/').filter(Boolean);
-              let currentPath = folderPath;
-              // Create intermediate folders (skip last part which is the filename)
-              for (let i = 0; i < parts.length - 1; i++) {
-                const subName = parts[i];
-                const nextPath = `${currentPath}/${subName}`;
-                await createFolder(projectId, currentPath, subName, userId);
-                currentPath = nextPath;
-              }
-              await addFiles([file], projectId, currentPath, userId);
-            }
+            await processDirectory(entry as FileSystemDirectoryEntry, folderPath);
           } else {
             const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
             await addFiles([file], projectId, path, userId);
