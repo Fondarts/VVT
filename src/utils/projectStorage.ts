@@ -169,6 +169,11 @@ export async function updateFileScanResult(fileId: string, scanResult: ScanResul
   await updateDoc(doc(db, FILES, fileId), { scanResult });
 }
 
+/** Move a file into a different version group by changing its baseName */
+export async function updateFileBaseName(fileId: string, newBaseName: string): Promise<void> {
+  await updateDoc(doc(db, FILES, fileId), { baseName: newBaseName });
+}
+
 export async function deleteProjectFile(fileId: string): Promise<void> {
   await deleteDoc(doc(db, FILES, fileId));
 }

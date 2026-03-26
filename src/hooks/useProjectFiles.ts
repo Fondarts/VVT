@@ -7,8 +7,9 @@ import {
   createFolder as createFolderFn,
   deleteProjectFile,
   deleteFolder as deleteFolderFn,
+  updateFileBaseName,
 } from '../utils/projectStorage';
-import { parseVersion, detectFileType, groupByVersion } from '../utils/versionDetection';
+import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
 
 // Global cache: files dropped in this session are kept in memory
 // so double-click can open them without re-picking
@@ -27,6 +28,7 @@ export interface UseProjectFilesReturn {
   createFolder: (projectId: string, parentPath: string, name: string, userId: string) => Promise<void>;
   removeFile: (fileId: string) => Promise<void>;
   removeFolder: (projectId: string, folderPath: string, folderId: string) => Promise<void>;
+  moveToVersionGroup: (fileId: string, targetBaseName: string) => Promise<void>;
   getLocalFile: (pf: ProjectFile) => File | null;
 }
 
@@ -72,6 +74,7 @@ export function useProjectFiles(projectId: string | null, parentPath: string): U
     userId: string,
   ) => {
     for (const file of droppedFiles) {
+      if (!isSupportedMedia(file.name)) continue; // skip .ini, .ds_store, etc.
       const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
       const { baseName, versionTag, versionNumber } = parseVersion(file.name);
       const type = detectFileType(file.name);
@@ -109,9 +112,13 @@ export function useProjectFiles(projectId: string | null, parentPath: string): U
     await deleteFolderFn(projId, folderPath, folderId);
   }, []);
 
+  const moveToVersionGroup = useCallback(async (fileId: string, targetBaseName: string) => {
+    await updateFileBaseName(fileId, targetBaseName);
+  }, []);
+
   const getLocalFile = useCallback((pf: ProjectFile): File | null => {
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, getLocalFile };
+  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, getLocalFile };
 }

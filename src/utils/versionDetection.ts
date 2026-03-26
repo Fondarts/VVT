@@ -27,15 +27,22 @@ export function parseVersion(filename: string): { baseName: string; versionTag: 
   return { baseName: nameWithoutExt, versionTag: null, versionNumber: 0 };
 }
 
+const VIDEO_EXTS = new Set(['mp4','mov','mkv','webm','avi','mxf','m2ts','ts','mts','mpg','mpeg','wmv','flv','3gp']);
+const IMAGE_EXTS = new Set(['jpg','jpeg','png','webp','gif','bmp','tiff','avif','svg']);
+const AUDIO_EXTS = new Set(['mp3','wav','aac','flac','ogg','m4a','wma','aiff']);
+
 export function detectFileType(filename: string): 'video' | 'image' | 'audio' {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  const videoExts = new Set(['mp4','mov','mkv','webm','avi','mxf','m2ts','ts','mts','mpg','mpeg','wmv','flv','3gp']);
-  const imageExts = new Set(['jpg','jpeg','png','webp','gif','bmp','tiff','avif','svg']);
-  const audioExts = new Set(['mp3','wav','aac','flac','ogg','m4a','wma','aiff']);
-  if (videoExts.has(ext)) return 'video';
-  if (imageExts.has(ext)) return 'image';
-  if (audioExts.has(ext)) return 'audio';
+  if (VIDEO_EXTS.has(ext)) return 'video';
+  if (IMAGE_EXTS.has(ext)) return 'image';
+  if (AUDIO_EXTS.has(ext)) return 'audio';
   return 'video';
+}
+
+/** Returns true if the file is a supported media type (video/image/audio) */
+export function isSupportedMedia(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return VIDEO_EXTS.has(ext) || IMAGE_EXTS.has(ext) || AUDIO_EXTS.has(ext);
 }
 
 export function groupByVersion(files: ProjectFile[]): VersionGroup[] {

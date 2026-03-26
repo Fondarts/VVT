@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2, Link } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
@@ -18,10 +18,12 @@ interface Props {
   onFileDoubleClick: (file: ProjectFile) => void;
   onDeleteFolder?: (folder: ProjectFolder) => void;
   onDeleteFile?: (file: ProjectFile) => void;
+  onMoveToVersion?: (fileId: string, targetBaseName: string) => void;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [linkingFileId, setLinkingFileId] = useState<string | null>(null);
 
   const isEmpty = folders.length === 0 && versionGroups.length === 0;
 
@@ -135,6 +137,14 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
               </span>
               <button
                 className="btn btn-icon btn-sm"
+                onClick={e => { e.stopPropagation(); setLinkingFileId(linkingFileId === g.latest.id ? null : g.latest.id); }}
+                title="Link to version group"
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
+              >
+                <Link size={13} />
+              </button>
+              <button
+                className="btn btn-icon btn-sm"
                 onClick={e => { e.stopPropagation(); onDeleteFile?.(g.latest); }}
                 title="Delete file"
                 style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
@@ -142,6 +152,31 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                 <Trash2 size={13} />
               </button>
             </div>
+            {/* Link to version group picker */}
+            {linkingFileId === g.latest.id && (
+              <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(225,255,28,0.04)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Move to version group:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).map(other => (
+                    <button
+                      key={other.baseName}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        onMoveToVersion?.(g.latest.id, other.latest.baseName);
+                        setLinkingFileId(null);
+                      }}
+                    >
+                      {other.latest.baseName}
+                    </button>
+                  ))}
+                  {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).length === 0 && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>No other groups available</span>
+                  )}
+                </div>
+              </div>
+            )}
             {expandedGroup === g.baseName && g.versions.length > 1 && (
               <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.01)' }}>
                 <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
@@ -173,7 +208,29 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                 onDoubleClick={() => onFileDoubleClick(g.latest)}
                 onExpandVersions={() => setExpandedGroup(expandedGroup === g.baseName ? null : g.baseName)}
                 onDelete={() => onDeleteFile?.(g.latest)}
+                onLink={() => setLinkingFileId(linkingFileId === g.latest.id ? null : g.latest.id)}
               />
+              {/* Link to version group picker (grid mode) */}
+              {linkingFileId === g.latest.id && (
+                <div style={{ gridColumn: '1 / -1', background: 'rgba(225,255,28,0.04)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Move to version group:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).map(other => (
+                      <button
+                        key={other.baseName}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.7rem', padding: '3px 8px' }}
+                        onClick={() => { onMoveToVersion?.(g.latest.id, other.latest.baseName); setLinkingFileId(null); }}
+                      >
+                        {other.latest.baseName}
+                      </button>
+                    ))}
+                    {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).length === 0 && (
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>No other groups available</span>
+                    )}
+                  </div>
+                </div>
+              )}
               {expandedGroup === g.baseName && g.versions.length > 1 && (
                 <div style={{ gridColumn: '1 / -1' }}>
                   <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
