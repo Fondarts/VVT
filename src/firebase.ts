@@ -3,19 +3,17 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyACvGUjdau8-36ITGvE5dXeFir_GzTiK1E',
-  authDomain: 'kissd-review.firebaseapp.com',
-  projectId: 'kissd-review',
-  storageBucket: 'kissd-review.firebasestorage.app',
-  messagingSenderId: '720957931719',
-  appId: '1:720957931719:web:857d42a7dc2bb2d4943ee2',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Google OAuth Web Client ID — the one created manually in GCP Console
-// with http://localhost and http://localhost:5173 as authorized JS origins.
-export const GOOGLE_CLIENT_ID =
-  '620928038175-euo6jfvosmlvnp9t4g7tpbn4r344vn7u.apps.googleusercontent.com';
+// Google OAuth Web Client ID — configured in GCP Console
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;

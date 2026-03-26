@@ -248,7 +248,7 @@ const TlBlockBar: React.FC<{ tl: NonNullable<VideoPlayerProps['timeline']> }> = 
   );
 };
 
-export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
+export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
   videoSrc,
   videoCodec,
   isTranscoding = false,
@@ -1410,6 +1410,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(({
       </div>
     </div>
   );
-});
+}));
 
 VideoPlayer.displayName = 'VideoPlayer';

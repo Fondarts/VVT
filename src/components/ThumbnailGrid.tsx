@@ -5,7 +5,7 @@ interface ThumbnailGridProps {
   thumbnails: string[]; // Blob URLs (already usable as <img src>)
 }
 
-export const ThumbnailGrid: React.FC<ThumbnailGridProps> = ({ thumbnails }) => {
+export const ThumbnailGrid: React.FC<ThumbnailGridProps> = React.memo(({ thumbnails }) => {
   const [collapsed, setCollapsed] = useState(true);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
@@ -90,4 +90,4 @@ export const ThumbnailGrid: React.FC<ThumbnailGridProps> = ({ thumbnails }) => {
       </div>}
     </div>
   );
-};
+});

@@ -70,7 +70,7 @@ function rgbaToHexAlpha(rgba: string): { hex: string; alpha: number } {
 
 // ── Component ────────────────────────────────────────────────────
 
-export const TranscriptionPanel: React.FC<Props> = ({
+export const TranscriptionPanel: React.FC<Props> = React.memo(({
   result: externalResult,
   onTranscriptionDone,
   onSeek,
@@ -607,4 +607,4 @@ export const TranscriptionPanel: React.FC<Props> = ({
       </div>}
     </div>
   );
-};
+});

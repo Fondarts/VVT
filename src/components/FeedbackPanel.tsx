@@ -46,7 +46,7 @@ function formatTimecode(seconds: number, fps: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}:${String(fr).padStart(2, '0')}`;
 }
 
-export const FeedbackPanel: React.FC<Props> = ({
+export const FeedbackPanel: React.FC<Props> = React.memo(({
   fileName,
   fileSize,
   currentTime,
@@ -635,4 +635,4 @@ export const FeedbackPanel: React.FC<Props> = ({
       </div>
     </>
   );
-};
+});

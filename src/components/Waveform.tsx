@@ -24,7 +24,7 @@ function dBToLinear(dB: number): number {
 const WAVEFORM_HEIGHT = 50;
 const VU_WIDTH = 52;
 
-export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, currentTime, videoEl, truePeakMax, defaultCollapsed }) => {
+export const Waveform: React.FC<WaveformProps> = React.memo(({ audioData, duration, currentTime, videoEl, truePeakMax, defaultCollapsed }) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
   const [vScale, setVScale] = useState(1);
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -439,4 +439,4 @@ export const Waveform: React.FC<WaveformProps> = ({ audioData, duration, current
       </div>}
     </div>
   );
-};
+});
