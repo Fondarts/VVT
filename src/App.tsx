@@ -53,7 +53,15 @@ import { useFeedback } from './hooks/useFeedback';
 import { ToastProvider, useToast } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectDashboard } from './components/projects/ProjectDashboard';
+import { VersionBar } from './components/projects/VersionBar';
+import { VersionCompare } from './components/projects/VersionCompare';
+import type { ProjectFile } from './shared/types';
 
+interface VersionContext {
+  currentFile: ProjectFile;
+  versions: ProjectFile[];
+  getLocalFile: (pf: ProjectFile) => File | null;
+}
 
 const App: React.FC = () => {
   const { addToast } = useToast();
@@ -62,6 +70,8 @@ const App: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [versionContext, setVersionContext] = useState<VersionContext | null>(null);
+  const [compareState, setCompareState] = useState<{ fileA: { projectFile: ProjectFile; src: string }; fileB: { projectFile: ProjectFile; src: string } } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -401,8 +411,9 @@ const App: React.FC = () => {
         {mode === 'projects' && user && (
           <ProjectDashboard
             userId={user.uid}
-            onFileOpen={(file: File) => {
+            onFileOpen={(file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
               handleFileSelected(file);
+              setVersionContext(ctx ?? null);
               setMode('single');
             }}
           />
@@ -453,6 +464,42 @@ const App: React.FC = () => {
 
 
         {mode === 'single' && videoSrc && (
+          <>
+          {/* Version bar when opened from project */}
+          {versionContext && versionContext.versions.length > 0 && (
+            <VersionBar
+              currentFile={versionContext.currentFile}
+              versions={versionContext.versions}
+              onBack={() => { setMode('projects'); setVersionContext(null); }}
+              onSwitchVersion={(pf) => {
+                const localFile = versionContext.getLocalFile(pf);
+                if (localFile) {
+                  handleFileSelected(localFile);
+                  setVersionContext({ ...versionContext, currentFile: pf });
+                } else {
+                  const input = document.createElement('input');
+                  input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
+                  input.onchange = () => {
+                    const f = input.files?.[0];
+                    if (f) { handleFileSelected(f); setVersionContext({ ...versionContext, currentFile: pf }); }
+                  };
+                  input.click();
+                }
+              }}
+              onCompare={(a, b) => {
+                const fileA = versionContext.getLocalFile(a);
+                const fileB = versionContext.getLocalFile(b);
+                if (fileA && fileB) {
+                  setCompareState({
+                    fileA: { projectFile: a, src: URL.createObjectURL(fileA) },
+                    fileB: { projectFile: b, src: URL.createObjectURL(fileB) },
+                  });
+                } else {
+                  addToast('Both files must be available locally to compare. Re-drop them from Drive.', 'warning');
+                }
+              }}
+            />
+          )}
           <div className="results-container">
             {/* Left column */}
             <div className="results-column" style={{
@@ -845,6 +892,19 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
+          {/* Version compare overlay */}
+          {compareState && (
+            <VersionCompare
+              fileA={compareState.fileA}
+              fileB={compareState.fileB}
+              onClose={() => {
+                URL.revokeObjectURL(compareState.fileA.src);
+                URL.revokeObjectURL(compareState.fileB.src);
+                setCompareState(null);
+              }}
+            />
+          )}
+          </>
         )}
       </main>
 

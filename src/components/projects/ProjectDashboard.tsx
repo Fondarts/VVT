@@ -1,13 +1,20 @@
 import React from 'react';
+import type { ProjectFile } from '../../shared/types';
 import { useProjectNav } from '../../hooks/useProjectNav';
 import { useProjects } from '../../hooks/useProjects';
 import { ProjectGrid } from './ProjectGrid';
 import { ProjectView } from './ProjectView';
 import { ErrorBoundary } from '../ErrorBoundary';
 
+interface VersionContext {
+  currentFile: ProjectFile;
+  versions: ProjectFile[];
+  getLocalFile: (pf: ProjectFile) => File | null;
+}
+
 interface Props {
   userId: string;
-  onFileOpen: (file: File) => void;
+  onFileOpen: (file: File, ctx?: VersionContext) => void;
 }
 
 export const ProjectDashboard: React.FC<Props> = ({ userId, onFileOpen }) => {

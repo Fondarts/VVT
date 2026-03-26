@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
+import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
@@ -13,7 +14,7 @@ interface Props {
   userId: string;
   onNavigate: (path: string) => void;
   onGoToDashboard: () => void;
-  onFileOpen: (file: File) => void;
+  onFileOpen: (file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => void;
 }
 
 export const ProjectView: React.FC<Props> = ({
@@ -170,17 +171,21 @@ export const ProjectView: React.FC<Props> = ({
             onMoveToVersion={(fileId, targetBaseName) => moveToVersionGroup(fileId, targetBaseName)}
             onReorderVersion={(fileId, newVersionNumber) => reorderVersion(fileId, newVersionNumber)}
             onFileDoubleClick={(pf) => {
+              // Find the version group this file belongs to
+              const group = versionGroups.find(g =>
+                g.versions.some(v => v.id === pf.id)
+              );
+              const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
+
               const localFile = getLocalFile(pf);
               if (localFile) {
-                onFileOpen(localFile);
+                onFileOpen(localFile, ctx);
               } else {
-                // File not in cache — ask user to pick it
                 const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'video/*,image/*,audio/*';
+                input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
                 input.onchange = () => {
                   const f = input.files?.[0];
-                  if (f) onFileOpen(f);
+                  if (f) onFileOpen(f, ctx);
                 };
                 input.click();
               }
