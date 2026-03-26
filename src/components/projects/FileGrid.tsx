@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
@@ -16,9 +16,11 @@ interface Props {
   viewMode: 'grid' | 'list';
   onFolderClick: (path: string) => void;
   onFileDoubleClick: (file: ProjectFile) => void;
+  onDeleteFolder?: (folder: ProjectFolder) => void;
+  onDeleteFile?: (file: ProjectFile) => void;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const isEmpty = folders.length === 0 && versionGroups.length === 0;
@@ -50,6 +52,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
           <span style={{ minWidth: '60px', flexShrink: 0 }}>Type</span>
           <span style={{ minWidth: '80px', flexShrink: 0 }}>Size</span>
           <span style={{ minWidth: '60px', flexShrink: 0 }}>Version</span>
+          <span style={{ width: '32px', flexShrink: 0 }} />
         </div>
 
         {/* Folders */}
@@ -73,6 +76,14 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
             <span style={{ minWidth: '60px', flexShrink: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>Folder</span>
             <span style={{ minWidth: '80px', flexShrink: 0 }} />
             <span style={{ minWidth: '60px', flexShrink: 0 }} />
+            <button
+              className="btn btn-icon btn-sm"
+              onClick={e => { e.stopPropagation(); onDeleteFolder?.(f); }}
+              title="Delete folder"
+              style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
+            >
+              <Trash2 size={13} />
+            </button>
           </div>
         ))}
 
@@ -122,6 +133,14 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                   </button>
                 )}
               </span>
+              <button
+                className="btn btn-icon btn-sm"
+                onClick={e => { e.stopPropagation(); onDeleteFile?.(g.latest); }}
+                title="Delete file"
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
             {expandedGroup === g.baseName && g.versions.length > 1 && (
               <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.01)' }}>
@@ -140,7 +159,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
       {folders.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
           {folders.map(f => (
-            <FolderCard key={f.id} folder={f} onClick={() => onFolderClick(f.path)} />
+            <FolderCard key={f.id} folder={f} onClick={() => onFolderClick(f.path)} onDelete={() => onDeleteFolder?.(f)} />
           ))}
         </div>
       )}
@@ -153,6 +172,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                 group={g}
                 onDoubleClick={() => onFileDoubleClick(g.latest)}
                 onExpandVersions={() => setExpandedGroup(expandedGroup === g.baseName ? null : g.baseName)}
+                onDelete={() => onDeleteFile?.(g.latest)}
               />
               {expandedGroup === g.baseName && g.versions.length > 1 && (
                 <div style={{ gridColumn: '1 / -1' }}>

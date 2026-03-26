@@ -8,6 +8,7 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDocs,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -170,4 +171,30 @@ export async function updateFileScanResult(fileId: string, scanResult: ScanResul
 
 export async function deleteProjectFile(fileId: string): Promise<void> {
   await deleteDoc(doc(db, FILES, fileId));
+}
+
+/** Delete a folder and all its contents (subfolders + files) recursively */
+export async function deleteFolder(projectId: string, folderPath: string, folderId: string): Promise<void> {
+  // Delete all files whose parentPath starts with this folder's path
+  const filesQ = query(collection(db, FILES), where('projectId', '==', projectId));
+  const filesSnap = await getDocs(filesQ);
+  for (const d of filesSnap.docs) {
+    const pp = d.data().parentPath as string;
+    if (pp === folderPath || pp.startsWith(folderPath + '/')) {
+      await deleteDoc(d.ref);
+    }
+  }
+
+  // Delete all subfolders whose path starts with this folder's path
+  const foldersQ = query(collection(db, FOLDERS), where('projectId', '==', projectId));
+  const foldersSnap = await getDocs(foldersQ);
+  for (const d of foldersSnap.docs) {
+    const fp = d.data().path as string;
+    if (fp === folderPath || fp.startsWith(folderPath + '/')) {
+      await deleteDoc(d.ref);
+    }
+  }
+
+  // Delete the folder itself
+  await deleteDoc(doc(db, FOLDERS, folderId));
 }

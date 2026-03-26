@@ -5,6 +5,8 @@ import {
   subscribeFolders,
   addProjectFile,
   createFolder as createFolderFn,
+  deleteProjectFile,
+  deleteFolder as deleteFolderFn,
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion } from '../utils/versionDetection';
 
@@ -23,6 +25,8 @@ export interface UseProjectFilesReturn {
   loading: boolean;
   addFiles: (files: File[], projectId: string, parentPath: string, userId: string) => Promise<void>;
   createFolder: (projectId: string, parentPath: string, name: string, userId: string) => Promise<void>;
+  removeFile: (fileId: string) => Promise<void>;
+  removeFolder: (projectId: string, folderPath: string, folderId: string) => Promise<void>;
   getLocalFile: (pf: ProjectFile) => File | null;
 }
 
@@ -97,9 +101,17 @@ export function useProjectFiles(projectId: string | null, parentPath: string): U
     await createFolderFn(projId, path, name, userId);
   }, []);
 
+  const removeFile = useCallback(async (fileId: string) => {
+    await deleteProjectFile(fileId);
+  }, []);
+
+  const removeFolder = useCallback(async (projId: string, folderPath: string, folderId: string) => {
+    await deleteFolderFn(projId, folderPath, folderId);
+  }, []);
+
   const getLocalFile = useCallback((pf: ProjectFile): File | null => {
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  return { files, folders, versionGroups, loading, addFiles, createFolder, getLocalFile };
+  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, getLocalFile };
 }

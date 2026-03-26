@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
 import type { VersionGroup, ProjectFolder } from '../../shared/types';
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -12,9 +12,10 @@ interface FileProps {
   group: VersionGroup;
   onDoubleClick: () => void;
   onExpandVersions?: () => void;
+  onDelete?: () => void;
 }
 
-export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVersions }) => {
+export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVersions, onDelete }) => {
   const { latest, versions } = group;
   const hasVersions = versions.length > 1;
 
@@ -43,6 +44,14 @@ export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVe
             {latest.versionTag.toUpperCase()}
           </span>
         )}
+        <button
+          className="btn btn-icon btn-sm"
+          onClick={e => { e.stopPropagation(); onDelete?.(); }}
+          title="Delete file"
+          style={{ color: 'var(--color-text-muted)', flexShrink: 0, padding: '2px' }}
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
@@ -68,9 +77,10 @@ export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVe
 interface FolderCardProps {
   folder: ProjectFolder;
   onClick: () => void;
+  onDelete?: () => void;
 }
 
-export const FolderCard: React.FC<FolderCardProps> = ({ folder, onClick }) => {
+export const FolderCard: React.FC<FolderCardProps> = ({ folder, onClick, onDelete }) => {
   return (
     <div
       onClick={onClick}
@@ -85,9 +95,17 @@ export const FolderCard: React.FC<FolderCardProps> = ({ folder, onClick }) => {
       onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-color)')}
     >
       <Folder size={18} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-      <span style={{ fontSize: '0.8125rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: '0.8125rem', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {folder.name}
       </span>
+      <button
+        className="btn btn-icon btn-sm"
+        onClick={e => { e.stopPropagation(); onDelete?.(); }}
+        title="Delete folder"
+        style={{ color: 'var(--color-text-muted)', flexShrink: 0, padding: '2px' }}
+      >
+        <Trash2 size={12} />
+      </button>
     </div>
   );
 };

@@ -20,7 +20,7 @@ export const ProjectView: React.FC<Props> = ({
   projectId, projectName, path, breadcrumbs, userId,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
-  const { folders, versionGroups, loading, addFiles, createFolder, getLocalFile } = useProjectFiles(projectId, path);
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, getLocalFile } = useProjectFiles(projectId, path);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -163,6 +163,16 @@ export const ProjectView: React.FC<Props> = ({
             versionGroups={versionGroups}
             viewMode={viewMode}
             onFolderClick={onNavigate}
+            onDeleteFolder={(folder) => {
+              if (window.confirm(`Delete folder "${folder.name}" and all its contents?`)) {
+                removeFolder(projectId, folder.path, folder.id);
+              }
+            }}
+            onDeleteFile={(file) => {
+              if (window.confirm(`Delete "${file.name}"?`)) {
+                removeFile(file.id);
+              }
+            }}
             onFileDoubleClick={(pf) => {
               const localFile = getLocalFile(pf);
               if (localFile) {
