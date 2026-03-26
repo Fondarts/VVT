@@ -31,10 +31,17 @@ export interface UseProjectFilesReturn {
   removeFolder: (projectId: string, folderPath: string, folderId: string) => Promise<void>;
   moveToVersionGroup: (fileId: string, targetBaseName: string) => Promise<void>;
   reorderVersion: (fileId: string, newVersionNumber: number) => Promise<void>;
+  /** Get file from memory cache (sync) */
   getLocalFile: (pf: ProjectFile) => File | null;
+  /** Get file from memory cache or directory access (async, tries disk) */
+  resolveLocalFile: (pf: ProjectFile) => Promise<File | null>;
 }
 
-export function useProjectFiles(projectId: string | null, parentPath: string): UseProjectFilesReturn {
+export function useProjectFiles(
+  projectId: string | null,
+  parentPath: string,
+  resolveFromDirectory?: (fileName: string, fileSize: number) => Promise<File | null>,
+): UseProjectFilesReturn {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [folders, setFolders] = useState<ProjectFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,9 +137,24 @@ export function useProjectFiles(projectId: string | null, parentPath: string): U
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
+  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<File | null> => {
+    // 1. Memory cache (instant)
+    const cached = fileCache.get(cacheKey(pf.name, pf.sizeBytes));
+    if (cached) return cached;
+    // 2. File System Access API (reads from connected directory)
+    if (resolveFromDirectory) {
+      const resolved = await resolveFromDirectory(pf.name, pf.sizeBytes);
+      if (resolved) {
+        fileCache.set(cacheKey(pf.name, pf.sizeBytes), resolved); // cache for next time
+        return resolved;
+      }
+    }
+    return null;
+  }, [resolveFromDirectory]);
+
   const reorderVersion = useCallback(async (fileId: string, newVersionNumber: number) => {
     await updateFileVersionNumber(fileId, newVersionNumber);
   }, []);
 
-  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile };
+  return { files, folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile };
 }

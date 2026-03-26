@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
+import { FolderPlus, Upload, Loader2, LayoutGrid, List, HardDrive, Check } from 'lucide-react';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
+import { useDirectoryAccess } from '../../hooks/useDirectoryAccess';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
 import { CreateFolderModal } from './CreateFolderModal';
@@ -21,7 +22,8 @@ export const ProjectView: React.FC<Props> = ({
   projectId, projectName, path, breadcrumbs, userId,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile } = useProjectFiles(projectId, path);
+  const dirAccess = useDirectoryAccess();
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path, dirAccess.resolveFile);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -128,6 +130,17 @@ export const ProjectView: React.FC<Props> = ({
               <List size={14} />
             </button>
           </div>
+          {dirAccess.supported && (
+            <button
+              className={`btn btn-sm ${dirAccess.connected ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={dirAccess.connectDirectory}
+              title={dirAccess.connected ? `Connected: ${dirAccess.directoryName}` : 'Connect a local folder for direct file access'}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px' }}
+            >
+              {dirAccess.connected ? <Check size={13} /> : <HardDrive size={13} />}
+              <span style={{ fontSize: '0.75rem' }}>{dirAccess.connected ? dirAccess.directoryName : 'Connect Drive'}</span>
+            </button>
+          )}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
             <FolderPlus size={14} /> New Folder
           </button>
@@ -170,17 +183,18 @@ export const ProjectView: React.FC<Props> = ({
             }}
             onMoveToVersion={(fileId, targetBaseName) => moveToVersionGroup(fileId, targetBaseName)}
             onReorderVersion={(fileId, newVersionNumber) => reorderVersion(fileId, newVersionNumber)}
-            onFileDoubleClick={(pf) => {
-              // Find the version group this file belongs to
+            onFileDoubleClick={async (pf) => {
               const group = versionGroups.find(g =>
                 g.versions.some(v => v.id === pf.id)
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              const localFile = getLocalFile(pf);
-              if (localFile) {
-                onFileOpen(localFile, ctx);
+              // Try memory cache first, then directory access
+              const resolved = await resolveLocalFile(pf);
+              if (resolved) {
+                onFileOpen(resolved, ctx);
               } else {
+                // Last resort: file picker
                 const input = document.createElement('input');
                 input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
                 input.onchange = () => {
