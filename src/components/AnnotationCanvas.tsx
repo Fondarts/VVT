@@ -162,6 +162,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
     <>
       <canvas
         ref={canvasRef}
+        aria-label="Annotation drawing canvas"
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}

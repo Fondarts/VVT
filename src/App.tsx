@@ -289,11 +289,12 @@ const App: React.FC = () => {
         </div>
         <div className="header-actions">
           {/* Mode toggle */}
-          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }} role="group" aria-label="Mode selection">
             <button
               className={`btn btn-sm ${mode === 'single' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ borderRadius: 0, borderRight: '1px solid var(--border-color)' }}
               onClick={() => setMode('single')}
+              aria-pressed={mode === 'single'}
             >
               Single
             </button>
@@ -301,6 +302,7 @@ const App: React.FC = () => {
               className={`btn btn-sm ${mode === 'batch' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ borderRadius: 0 }}
               onClick={() => setMode('batch')}
+              aria-pressed={mode === 'batch'}
             >
               Batch
             </button>
@@ -312,6 +314,7 @@ const App: React.FC = () => {
             ref={fileInputRef}
             type="file"
             accept="video/*,image/*,.mp4,.mov,.mkv,.webm,.avi,.mxf,.m2ts,.ts,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.avif"
+            aria-label="Select a video or image file"
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
@@ -503,15 +506,19 @@ const App: React.FC = () => {
             {/* Right column — always visible once a video is loaded */}
             <div className="results-column" style={{ height: 'calc(100vh - 130px)', overflowY: 'auto', position: 'sticky', top: 0 }}>
               {/* Tab nav */}
-              <div className="tab-nav" style={{ flexShrink: 0, position: 'sticky', top: 0, zIndex: 10 }}>
+              <div className="tab-nav" role="tablist" aria-label="Content panels" style={{ flexShrink: 0, position: 'sticky', top: 0, zIndex: 10 }}>
                 <button
+                  role="tab"
+                  aria-selected={activeRightTab === 'feedback'}
+                  aria-controls="panel-feedback"
+                  id="tab-feedback"
                   className={`tab-btn ${activeRightTab === 'feedback' ? 'active' : ''}`}
                   onClick={() => setActiveRightTab('feedback')}
                   style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
                 >
                   Feedback
                   {feedbackCount > 0 && (
-                    <span style={{
+                    <span aria-label={`${feedbackCount} comments`} style={{
                       background: 'var(--color-accent)',
                       color: '#000',
                       borderRadius: '10px',
@@ -525,14 +532,22 @@ const App: React.FC = () => {
                   )}
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeRightTab === 'specs'}
+                  aria-controls="panel-specs"
+                  id="tab-specs"
                   className={`tab-btn ${activeRightTab === 'specs' ? 'active' : ''}`}
                   onClick={() => setActiveRightTab('specs')}
                   style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
                 >
                   Specs
-                  {scanning && <Loader2 size={11} className="animate-spin" />}
+                  {scanning && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeRightTab === 'tools'}
+                  aria-controls="panel-tools"
+                  id="tab-tools"
                   className={`tab-btn ${activeRightTab === 'tools' ? 'active' : ''}`}
                   onClick={() => setActiveRightTab('tools')}
                 >
@@ -542,19 +557,19 @@ const App: React.FC = () => {
 
               {/* ── Specs tab ───────────────────────────────────────── */}
               {activeRightTab === 'specs' && (
-                <>
+                <div id="panel-specs" role="tabpanel" aria-labelledby="tab-specs">
                   {/* Slim progress bar while scanning */}
                   {scanning && (
-                    <div style={{ marginBottom: '8px' }}>
+                    <div aria-live="polite" aria-atomic="true" style={{ marginBottom: '8px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Loader2 size={12} className="animate-spin" />
+                          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
                           {scanStatus}
                         </span>
                         <span>{scanProgress}%</span>
                       </div>
                       <div style={{ width: '100%', height: '2px', background: 'var(--color-bg-tertiary)', borderRadius: '1px' }}>
-                        <div style={{ width: `${scanProgress}%`, height: '100%', background: 'var(--color-accent)', borderRadius: '1px', transition: 'width 0.3s' }} />
+                        <div role="progressbar" aria-valuenow={scanProgress} aria-valuemin={0} aria-valuemax={100} aria-label="Scan progress" style={{ width: `${scanProgress}%`, height: '100%', background: 'var(--color-accent)', borderRadius: '1px', transition: 'width 0.3s' }} />
                       </div>
                     </div>
                   )}
@@ -701,12 +716,13 @@ const App: React.FC = () => {
                       )}
                     </>
                   )}
-                </>
+                </div>
               )}
 
               {/* ── Feedback tab ─────────────────────────────────────── */}
               {activeRightTab === 'feedback' && selectedFile && (
-                user ? (
+                <div id="panel-feedback" role="tabpanel" aria-labelledby="tab-feedback">
+                {user ? (
                   <FeedbackPanel
                     fileName={selectedFile.name}
                     fileSize={selectedFile.size}
@@ -740,12 +756,13 @@ const App: React.FC = () => {
                       <p style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '8px' }}>{authError}</p>
                     )}
                   </div>
-                )
+                )}
+                </div>
               )}
 
               {/* ── Tools tab ────────────────────────────────────────── */}
               {activeRightTab === 'tools' && (
-                <>
+                <div id="panel-tools" role="tabpanel" aria-labelledby="tab-tools">
                   {scanResult ? (
                     <>
                       <TranscriptionPanel
@@ -777,7 +794,7 @@ const App: React.FC = () => {
                       Scan a file to use tools
                     </div>
                   )}
-                </>
+                </div>
               )}
             </div>
           </div>

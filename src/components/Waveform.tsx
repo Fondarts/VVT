@@ -371,6 +371,7 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
             </span>
             <input
               type="range"
+              aria-label="Waveform vertical scale"
               min={1}
               max={8}
               step={0.5}
@@ -390,6 +391,7 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
               ref={waveCanvasRef}
               width={800}
               height={WAVEFORM_HEIGHT}
+              aria-label="Audio waveform visualization"
               style={{
                 width: '100%',
                 height: `${WAVEFORM_HEIGHT}px`,
@@ -417,6 +419,7 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
               ref={vuCanvasRef}
               width={VU_WIDTH}
               height={WAVEFORM_HEIGHT}
+              aria-label="Audio VU meter"
               style={{
                 width: `${VU_WIDTH}px`,
                 height: `${WAVEFORM_HEIGHT}px`,

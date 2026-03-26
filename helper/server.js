@@ -26,6 +26,11 @@ const FFMPEG_DIR = path.join(DATA_DIR, 'ffmpeg');
 const TEMP_DIR = path.join(os.tmpdir(), 'kissd-helper');
 const FFMPEG_URL_WIN = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 
+// Upload limits
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024 * 1024; // 10 GB
+const ALLOWED_VIDEO_EXTS = new Set(['mp4','mov','mkv','webm','avi','mxf','m2ts','ts','mts','mpg','mpeg','wmv','flv','3gp']);
+const ALLOWED_ASSET_EXTS = new Set(['png','jpg','jpeg','webp','bmp','tiff','gif']);
+
 let ffmpegPath = null;
 let ffprobePath = null;
 
@@ -228,12 +233,29 @@ function json(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-function readBody(req) {
-  return new Promise((resolve) => {
+function readBody(req, maxBytes = 10 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', c => chunks.push(c));
+    let received = 0;
+    req.on('data', c => {
+      received += c.length;
+      if (received > maxBytes) {
+        req.destroy();
+        reject(new Error(`Request body exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
   });
+}
+
+/** Validate and sanitize a file extension from user input */
+function sanitizeExt(ext, allowedSet) {
+  const clean = (ext || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  if (!clean || !allowedSet.has(clean)) return null;
+  return clean;
 }
 
 // ═══════════════════════════════════════════════
@@ -534,10 +556,18 @@ const server = http.createServer(async (req, res) => {
   // POST /upload-video
   if (url.pathname === '/upload-video' && req.method === 'POST') {
     try {
-      const ext = url.searchParams.get('ext') || 'mp4';
+      const ext = sanitizeExt(url.searchParams.get('ext') || 'mp4', ALLOWED_VIDEO_EXTS);
+      if (!ext) return json(res, { error: `Invalid video extension. Allowed: ${[...ALLOWED_VIDEO_EXTS].join(', ')}` }, 400);
+      const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+      if (contentLength > MAX_UPLOAD_BYTES) return json(res, { error: `File too large (max ${MAX_UPLOAD_BYTES / (1024*1024*1024)} GB)` }, 413);
       const id = crypto.randomBytes(8).toString('hex');
       const videoPath = path.join(TEMP_DIR, `${id}.${ext}`);
       const ws = fs.createWriteStream(videoPath);
+      let received = 0;
+      req.on('data', (chunk) => {
+        received += chunk.length;
+        if (received > MAX_UPLOAD_BYTES) { req.destroy(); ws.destroy(); try { fs.unlinkSync(videoPath); } catch {} }
+      });
       req.pipe(ws);
       ws.on('finish', () => json(res, { path: videoPath }));
       ws.on('error', (err) => json(res, { error: err.message }, 500));
@@ -548,10 +578,18 @@ const server = http.createServer(async (req, res) => {
   // POST /upload-asset
   if (url.pathname === '/upload-asset' && req.method === 'POST') {
     try {
-      const assetExt = url.searchParams.get('ext') || 'png';
+      const assetExt = sanitizeExt(url.searchParams.get('ext') || 'png', ALLOWED_ASSET_EXTS);
+      if (!assetExt) return json(res, { error: `Invalid asset extension. Allowed: ${[...ALLOWED_ASSET_EXTS].join(', ')}` }, 400);
+      const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+      if (contentLength > 50 * 1024 * 1024) return json(res, { error: 'Asset too large (max 50 MB)' }, 413);
       const id = crypto.randomBytes(8).toString('hex');
       const assetPath = path.join(TEMP_DIR, `${id}.${assetExt}`);
       const ws = fs.createWriteStream(assetPath);
+      let received = 0;
+      req.on('data', (chunk) => {
+        received += chunk.length;
+        if (received > 50 * 1024 * 1024) { req.destroy(); ws.destroy(); try { fs.unlinkSync(assetPath); } catch {} }
+      });
       req.pipe(ws);
       ws.on('finish', () => json(res, { path: assetPath }));
       ws.on('error', (err) => json(res, { error: err.message }, 500));

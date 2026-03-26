@@ -18,9 +18,10 @@ interface RowDef {
 }
 
 const statusIcon = (status: 'pass' | 'warn' | 'fail') => {
-  if (status === 'pass') return <CheckCircle2 size={14} style={{ color: 'var(--color-success)', flexShrink: 0 }} />;
-  if (status === 'warn') return <AlertTriangle size={14} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />;
-  return <AlertCircle size={14} style={{ color: 'var(--color-error)', flexShrink: 0 }} />;
+  const label = status === 'pass' ? 'Passed' : status === 'warn' ? 'Warning' : 'Failed';
+  if (status === 'pass') return <CheckCircle2 size={14} style={{ color: 'var(--color-success)', flexShrink: 0 }} role="img" aria-label={label} />;
+  if (status === 'warn') return <AlertTriangle size={14} style={{ color: 'var(--color-warning)', flexShrink: 0 }} role="img" aria-label={label} />;
+  return <AlertCircle size={14} style={{ color: 'var(--color-error)', flexShrink: 0 }} role="img" aria-label={label} />;
 };
 
 export const CheckResults = React.memo<CheckResultsProps>(({ checks, noPreset, scanResult, presetName, headerExtra }) => {
@@ -51,6 +52,8 @@ export const CheckResults = React.memo<CheckResultsProps>(({ checks, noPreset, s
       <div key={key} style={{ borderBottom: '1px solid var(--border-color)' }}>
         <button
           onClick={() => toggle(key)}
+          aria-expanded={expanded}
+          aria-controls={`group-${key}`}
           style={{
             width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '10px 16px', background: 'transparent', border: 'none',
@@ -70,7 +73,7 @@ export const CheckResults = React.memo<CheckResultsProps>(({ checks, noPreset, s
         </button>
 
         {expanded && (
-          <div style={{ padding: '2px 16px 8px' }}>
+          <div id={`group-${key}`} style={{ padding: '2px 16px 8px' }}>
             {rows.map(row => {
               const check = findCheck(row.checkId);
               const valueColor = !check

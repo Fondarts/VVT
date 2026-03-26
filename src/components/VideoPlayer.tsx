@@ -1007,6 +1007,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
           <input
             ref={rangeRef}
             type="range"
+            aria-label="Video timeline"
             min={0}
             max={tl ? tl.totalDuration : (duration || 1)}
             step={frameRate ? 1 / frameRate : 0.04}
@@ -1316,6 +1317,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
             <Maximize size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
             <input
               type="range"
+              aria-label="Video zoom level"
               min="1"
               max="2"
               step="0.1"
