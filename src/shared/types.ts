@@ -105,42 +105,50 @@ export interface ValidationPreset {
   name: string;
   description: string;
   containerFormats: string[];
-  allowedVideoCodecs?: string[];
-  videoCodecs?: string[];
-  allowedAudioCodecs?: string[];
-  audioCodec?: string;
-  resolutions?: ResolutionPreset[];
-  minDimensions?: { width: number; height: number };
-  maxDimensions?: { width: number; height: number };
   frameRates: number[];
   requireProgressive: boolean;
   chromaSubsampling: string;
+
+  // Video
+  allowedVideoCodecs?: string[];
+  resolutions?: ResolutionPreset[];
+  minDimensions?: { width: number; height: number };
+  maxDimensions?: { width: number; height: number };
   bitDepth?: number;
-  audioSampleRate?: number;
-  audioChannels?: number;
-  minBitrate?: number;
-  maxBitrate?: number;
   maxBitrateMbps?: number;
   minBitrateMbps?: number;
-  bitrateMode?: 'cbr' | 'vbr';
-  requireFastStart?: boolean;
-  loudnessTarget?: number;
-  loudnessTolerance?: number;
-  truePeakMax?: number;
-  aspectRatios?: string[];
-  maxFileSizeMb?: number;
-  minAudioKbps?: number;
-  audioBitDepth?: number;
-  // New fields for rule-based custom presets
-  allowedFileExtensions?: string[];
   chromaSubsamplings?: string[];
   allowedColorSpaces?: string[];
+  aspectRatios?: string[];
   maxDurationSeconds?: number;
   minDurationSeconds?: number;
+  requireFastStart?: boolean;
+  allowedFileExtensions?: string[];
+  maxFileSizeMb?: number;
+
+  // Audio
+  allowedAudioCodecs?: string[];
   allowedAudioSampleRates?: number[];
   allowedAudioChannels?: number[];
+  audioSampleRate?: number;
+  audioChannels?: number;
+  loudnessTarget?: number;
+  loudnessTolerance?: number;
   loudnessMin?: number;
   loudnessMax?: number;
+  truePeakMax?: number;
+  minAudioKbps?: number;
+  audioBitDepth?: number;
+  bitrateMode?: 'cbr' | 'vbr';
+
+  /** @deprecated Use allowedVideoCodecs instead */
+  videoCodecs?: string[];
+  /** @deprecated Use allowedAudioCodecs instead */
+  audioCodec?: string;
+  /** @deprecated Use maxBitrateMbps instead (value in bps) */
+  minBitrate?: number;
+  /** @deprecated Use maxBitrateMbps instead (value in bps) */
+  maxBitrate?: number;
 }
 
 export interface OverlayPreset {
