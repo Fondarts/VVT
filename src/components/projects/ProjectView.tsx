@@ -25,7 +25,16 @@ export const ProjectView: React.FC<Props> = ({
 }) => {
   const { addToast } = useToast();
   const helper = useHelperDirectory();
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile } = useProjectFiles(projectId, path);
+  const findFilePath = useCallback(async (fileName: string): Promise<string | null> => {
+    if (!helper.connected || !helper.directoryPath) return null;
+    const { findFileViaHelper } = await import('../../utils/helperFileAccess');
+    return findFileViaHelper(helper.directoryPath, fileName);
+  }, [helper.connected, helper.directoryPath]);
+
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(
+    projectId, path,
+    helper.connected ? findFilePath : undefined,
+  );
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -191,18 +200,18 @@ export const ProjectView: React.FC<Props> = ({
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              // 1. Memory cache
+              // 1. Memory cache → File object
               const cached = getLocalFile(pf);
               if (cached) { onFileOpen(cached, ctx); return; }
 
-              // 2. Helper server — find + stream from disk
-              if (helper.connected) {
-                addToast(`Searching for ${pf.name}...`, 'info');
-                const fileUrl = await helper.resolveFileUrl(pf.name);
-                if (fileUrl) {
-                  // Create a fake File from the streaming URL so handleFileSelected works
+              // 2. resolveLocalFile → saved path or helper search
+              if (helper.connected || pf.localPath) {
+                addToast(`Opening ${pf.name}...`, 'info');
+                const result = await resolveLocalFile(pf);
+                if (result?.file) { onFileOpen(result.file, ctx); return; }
+                if (result?.streamUrl) {
                   try {
-                    const resp = await fetch(fileUrl);
+                    const resp = await fetch(result.streamUrl);
                     const blob = await resp.blob();
                     const file = new File([blob], pf.name, { type: blob.type });
                     onFileOpen(file, ctx);
@@ -211,7 +220,7 @@ export const ProjectView: React.FC<Props> = ({
                     console.warn('Helper stream failed:', e);
                   }
                 }
-                addToast(`File not found in ${helper.directoryName}. Select it manually.`, 'warning');
+                addToast(`File not found. Select it manually.`, 'warning');
               }
 
               // 3. Fallback: file picker

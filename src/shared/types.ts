@@ -352,6 +352,8 @@ export interface ProjectFile {
   scanResult: ScanResult | null;
   addedBy: string;
   addedAt: string;
+  /** Absolute path on disk (set by helper at drop time, used for direct access) */
+  localPath?: string;
 }
 
 export interface VersionGroup {

@@ -33,14 +33,14 @@ export interface UseProjectFilesReturn {
   reorderVersion: (fileId: string, newVersionNumber: number) => Promise<void>;
   /** Get file from memory cache (sync) */
   getLocalFile: (pf: ProjectFile) => File | null;
-  /** Get file from memory cache or directory access (async, tries disk) */
-  resolveLocalFile: (pf: ProjectFile) => Promise<File | null>;
+  /** Get file from memory cache or helper (async). Returns File or stream URL */
+  resolveLocalFile: (pf: ProjectFile) => Promise<{ file?: File; streamUrl?: string } | null>;
 }
 
 export function useProjectFiles(
   projectId: string | null,
   parentPath: string,
-  resolveFromDirectory?: (fileName: string, fileSize: number) => Promise<File | null>,
+  findFilePath?: (fileName: string) => Promise<string | null>,
 ): UseProjectFilesReturn {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [folders, setFolders] = useState<ProjectFolder[]>([]);
@@ -91,6 +91,12 @@ export function useProjectFiles(
       // Cache the File object so double-click can open it later
       fileCache.set(cacheKey(file.name, file.size), file);
 
+      // Try to resolve the absolute path via helper (for future sessions)
+      let localPath: string | undefined;
+      if (findFilePath) {
+        try { localPath = (await findFilePath(file.name)) ?? undefined; } catch { /* ignore */ }
+      }
+
       await addProjectFile(projId, path, {
         name: file.name,
         baseName,
@@ -100,6 +106,7 @@ export function useProjectFiles(
         extension: ext,
         sizeBytes: file.size,
         scanResult: null,
+        localPath,
       }, userId);
     }
   }, []);
@@ -137,24 +144,27 @@ export function useProjectFiles(
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<File | null> => {
+  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<{ file?: File; streamUrl?: string } | null> => {
     // 1. Memory cache (instant)
     const cached = fileCache.get(cacheKey(pf.name, pf.sizeBytes));
-    if (cached) return cached;
-    // 2. File System Access API (reads from connected directory)
-    if (resolveFromDirectory) {
+    if (cached) return { file: cached };
+    // 2. Saved localPath — stream directly via helper (no search needed)
+    if (pf.localPath) {
+      const { getServeFileUrl } = await import('../utils/helperFileAccess');
+      return { streamUrl: getServeFileUrl(pf.localPath) };
+    }
+    // 3. Search via helper
+    if (findFilePath) {
       try {
-        const resolved = await resolveFromDirectory(pf.name, pf.sizeBytes);
-        if (resolved) {
-          fileCache.set(cacheKey(pf.name, pf.sizeBytes), resolved);
-          return resolved;
+        const foundPath = await findFilePath(pf.name);
+        if (foundPath) {
+          const { getServeFileUrl } = await import('../utils/helperFileAccess');
+          return { streamUrl: getServeFileUrl(foundPath) };
         }
-      } catch (e) {
-        console.warn('[resolveLocalFile] Directory search failed:', e);
-      }
+      } catch { /* ignore */ }
     }
     return null;
-  }, [resolveFromDirectory]);
+  }, [findFilePath]);
 
   const reorderVersion = useCallback(async (fileId: string, newVersionNumber: number) => {
     await updateFileVersionNumber(fileId, newVersionNumber);
