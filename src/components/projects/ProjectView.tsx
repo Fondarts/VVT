@@ -87,7 +87,7 @@ export const ProjectView: React.FC<Props> = ({
     } finally {
       setAdding(false);
     }
-  }, [addFiles, createFolder, readEntryFiles, projectId, path, userId]);
+  }, [addFiles, createFolder, processDirectory, projectId, path, userId]);
 
   return (
     <>
