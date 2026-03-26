@@ -12,29 +12,20 @@ import {
   Pencil,
   Trash2,
   RotateCcw,
-  Clapperboard,
   LogOut,
   MessageCircle,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import type {
-  ScanResult,
   ValidationCheck,
-  ValidationPreset,
   ValidationReport,
   ContrastCheck,
-  ResolutionPreset,
-  AnnotationStroke,
 } from './shared/types';
 import { validationPresets } from './shared/presets';
 import { generatePDF, generateJSON, preloadPdf } from './utils/pdfGenerator';
 import { validateAgainstPreset } from './utils/validation';
 import {
-  runScan,
   captureFrameFromVideo,
-  needsTranscodeCodec,
 } from './api/ffmpeg';
 import { preloadWhisperWorker } from './api/whisper';
 import { useBatch } from './hooks/useBatch';
@@ -43,93 +34,22 @@ import { BrandBackground } from './components/BrandBackground';
 import { VideoPlayer } from './components/VideoPlayer';
 import type { VideoPlayerHandle } from './components/VideoPlayer';
 import { ImageViewer } from './components/ImageViewer';
-import { scanImageFile } from './utils/imageScanner';
 import { CheckResults } from './components/CheckResults';
 import { ContrastChecker } from './components/ContrastChecker';
 import { ThumbnailGrid } from './components/ThumbnailGrid';
 import { Waveform } from './components/Waveform';
 import { TranscriptionPanel } from './components/TranscriptionPanel';
 import { FeedbackPanel } from './components/FeedbackPanel';
-import { SlateCreator } from './components/SlateCreator';
-import { blockId } from './components/EditTimeline';
 import { ExportModal } from './components/ExportModal';
-import type { ExportSettings } from './components/ExportModal';
-import type { TimelineBlock, TimelinePreview } from './components/EditTimeline';
-import { exportTimeline } from './api/ffmpeg';
-import type { ExportCodecConfig, SubtitleBurnIn } from './api/ffmpeg';
-import { updateCommentTimecode, updateCommentRange, updateCommentTimecodes } from './utils/feedbackStorage';
 import type { TranscriptionResult, SubtitleStyle } from './shared/types';
 import { DEFAULT_SUBTITLE_STYLE } from './components/SubtitleSettingsModal';
-
-// ── Rule-based custom preset form ───────────────────────────────────
-interface RuleState { condition: string; value: string; }
-type ConditionId = 'equals' | 'notEquals' | 'inList' | 'ignore' | 'lt' | 'lte' | 'gt' | 'gte';
-const CONDITION_LABELS: Record<ConditionId, string> = {
-  lt: 'Less than', lte: 'Less than or equal to',
-  gt: 'Greater than', gte: 'Greater than or equal to',
-  equals: 'Equals', notEquals: 'Not equal to',
-  inList: 'In List', ignore: 'Ignore',
-};
-const DEFAULT_CONDITIONS: ConditionId[] = ['equals', 'notEquals', 'inList', 'ignore'];
-const NUMERIC_CONDITIONS: ConditionId[] = ['lt', 'lte', 'gt', 'gte', 'equals', 'notEquals'];
-interface RuleDef {
-  id: string; label: string; category: 'File' | 'Video' | 'Audio';
-  dc: ConditionId; dv: string; unit?: string; chips?: string[]; conditions?: ConditionId[];
-}
-const RULE_DEFS: RuleDef[] = [
-  // File
-  { id: 'fileFormat',    label: 'File Format',              category: 'File',  dc: 'inList',  dv: 'mp4, mov',                  unit: '',     chips: ['mp4','mov','mkv','webm','avi','mxf','m2ts'] },
-  { id: 'fileExt',       label: 'File Extension',           category: 'File',  dc: 'inList',  dv: 'mp4, mov',                  unit: '',     chips: ['mp4','mov','mkv','webm','avi','mxf','m2ts','ts'] },
-  { id: 'fileSize',      label: 'File Size',                category: 'File',  dc: 'lte',     dv: '',                          unit: 'MB',   conditions: NUMERIC_CONDITIONS },
-  { id: 'moovAtom',      label: 'MOOV Atom Location',       category: 'File',  dc: 'equals',  dv: 'beginning',                 unit: '',     chips: ['beginning','middle','end'] },
-  // Video
-  { id: 'videoCodec',    label: 'Video Codec',              category: 'Video', dc: 'inList',  dv: 'h264, hevc',                unit: '',     chips: ['h264','hevc','prores','vp9','av1','dnxhd'] },
-  { id: 'videoDims',     label: 'Video Dimensions',         category: 'Video', dc: 'inList',  dv: '1920x1080',                 unit: 'px',   chips: ['1920x1080','3840x2160','1280x720','720x576','720x486'] },
-  { id: 'videoAR',       label: 'Video Aspect Ratio',       category: 'Video', dc: 'inList',  dv: '16:9',                      unit: '',     chips: ['16:9','4:3','1:1','9:16','21:9'] },
-  { id: 'videoBitDepth', label: 'Video Bit Depth',          category: 'Video', dc: 'gte',     dv: '8',                         unit: 'bit',  chips: ['8','10','12'], conditions: NUMERIC_CONDITIONS },
-  { id: 'videoBitRate',  label: 'Video Bit Rate',           category: 'Video', dc: 'lte',     dv: '',                          unit: 'Mbps', conditions: NUMERIC_CONDITIONS },
-  { id: 'videoChroma',   label: 'Video Chroma Subsampling', category: 'Video', dc: 'inList',  dv: '4:2:0',                     unit: '',     chips: ['4:2:0','4:2:2','4:4:4'] },
-  { id: 'videoColor',    label: 'Video Color Space',        category: 'Video', dc: 'inList',  dv: 'bt709',                     unit: '',     chips: ['bt709','bt2020','bt601','smpte240m'] },
-  { id: 'videoDuration', label: 'Video Duration',           category: 'Video', dc: 'lte',     dv: '',                          unit: 's',    conditions: NUMERIC_CONDITIONS },
-  { id: 'videoFPS',      label: 'Video Frame Rate',         category: 'Video', dc: 'equals',  dv: '25',                        unit: 'fps',  chips: ['23.976','24','25','29.97','30','50','59.94','60'], conditions: NUMERIC_CONDITIONS },
-  { id: 'videoScan',     label: 'Video Scan Type',          category: 'Video', dc: 'equals',  dv: 'progressive',               unit: '',     chips: ['progressive','interlaced'] },
-  // Audio
-  { id: 'audioCodec',    label: 'Audio Codec',              category: 'Audio', dc: 'inList',  dv: 'aac',                       unit: '',     chips: ['aac','mp3','pcm_s16le','pcm_s24le','ac3','eac3'] },
-  { id: 'audioChannels', label: 'Audio Channels',           category: 'Audio', dc: 'equals',  dv: '2',                         unit: '',     chips: ['1','2','6','8'],          conditions: NUMERIC_CONDITIONS },
-  { id: 'audioSR',       label: 'Audio Sample Rate',        category: 'Audio', dc: 'equals',  dv: '48000',                     unit: 'Hz',   chips: ['44100','48000','96000'],  conditions: NUMERIC_CONDITIONS },
-  { id: 'audioLoudness', label: 'Audio Loudness',           category: 'Audio', dc: 'lte',     dv: '-23',                       unit: 'LUFS', chips: ['-23','-24','-16','-18'], conditions: NUMERIC_CONDITIONS },
-  { id: 'audioTP',       label: 'Audio True Peak',          category: 'Audio', dc: 'lte',     dv: '-1',                        unit: 'dBTP', chips: ['-1','-2','-3'],           conditions: NUMERIC_CONDITIONS },
-  { id: 'audioBR',       label: 'Audio Bit Rate',           category: 'Audio', dc: 'gte',     dv: '128',                       unit: 'kbps', chips: ['128','192','256','320'],  conditions: NUMERIC_CONDITIONS },
-];
-
-const makeDefaultRules = (): Record<string, RuleState> =>
-  Object.fromEntries(RULE_DEFS.map(d => [d.id, { condition: 'ignore', value: d.dv }]));
-
-interface CustomPresetForm { name: string; rules: Record<string, RuleState>; }
-const defaultForm: CustomPresetForm = { name: '', rules: makeDefaultRules() };
-
-const SlateCreatorCollapsible: React.FC<{ videoFile: File | null; onAddSlateBlock: (block: import('./components/EditTimeline').TimelineBlock) => void; forceOpen?: number; videoWidth?: number; videoHeight?: number }> = ({ videoFile, onAddSlateBlock, forceOpen, videoWidth, videoHeight }) => {
-  const [collapsed, setCollapsed] = useState(true);
-  React.useEffect(() => { if (forceOpen) setCollapsed(false); }, [forceOpen]);
-  return (
-    <div className="card">
-      <div className="card-header">
-        <h3 className="card-title" style={{ fontSize: '0.875rem' }}>
-          <Clapperboard size={14} style={{ marginRight: '8px', display: 'inline' }} />
-          Slate Creator
-        </h3>
-        <button className="btn btn-icon btn-sm" onClick={() => setCollapsed(c => !c)}>
-          {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-        </button>
-      </div>
-      {!collapsed && (
-        <div style={{ padding: '12px' }}>
-          <SlateCreator videoFile={videoFile} onAddSlateBlock={onAddSlateBlock} videoWidth={videoWidth} videoHeight={videoHeight} />
-        </div>
-      )}
-    </div>
-  );
-};
+import { SlateCreatorCollapsible } from './components/SlateCreatorCollapsible';
+import { RuleRow } from './components/RuleRow';
+import { RULE_DEFS } from './shared/presetRules';
+import { useCustomPresets } from './hooks/useCustomPresets';
+import { useScan } from './hooks/useScan';
+import { useTimeline } from './hooks/useTimeline';
+import { useFeedback } from './hooks/useFeedback';
 
 const App: React.FC = () => {
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
@@ -140,14 +60,14 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const [customPresets, setCustomPresets] = useState<ValidationPreset[]>(() => {
-    try { return JSON.parse(localStorage.getItem('customPresets') || '[]'); }
-    catch { return []; }
-  });
-  // Keep localStorage in sync with every state change
-  useEffect(() => {
-    localStorage.setItem('customPresets', JSON.stringify(customPresets));
-  }, [customPresets]);
+  const presets = useCustomPresets();
+  const {
+    customPresets, allPresets, selectedPreset,
+    showCustomModal, setShowCustomModal, customForm, setCustomForm,
+    editingPresetId, setEditingPresetId, overwriteTarget, setOverwriteTarget,
+    handlePresetChange, saveCustomPreset, doSave, deleteCustomPreset,
+    openEditPreset, updateRule, presetToRules,
+  } = presets;
 
   // Preload heavy deps in the background after the app is idle
   useEffect(() => {
@@ -161,61 +81,55 @@ const App: React.FC = () => {
       setTimeout(run, 3000);
     }
   }, []);
-  const [showCustomModal, setShowCustomModal] = useState(false);
-  const [customForm, setCustomForm] = useState<CustomPresetForm>(defaultForm);
-  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
-  const [overwriteTarget, setOverwriteTarget] = useState<ValidationPreset | null>(null);
 
-  // Custom presets can override built-ins by sharing the same ID
-  const overriddenIds = new Set(customPresets.map(p => p.id));
-  const allPresets = [
-    ...validationPresets.filter(p => !overriddenIds.has(p.id)),
-    ...customPresets,
-  ];
-
-  const [selectedPreset, setSelectedPreset] = useState<string>('');
   const batch = useBatch(selectedPreset, allPresets);
 
-  const [scanning, setScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scanStatus, setScanStatus] = useState('');
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const selectedFileRef = useRef<File | null>(null);
+  const onVideoSrcReplace = useCallback((url: string) => {
+    setVideoSrc(prev => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return url;
+    });
+  }, []);
+  const scan = useScan(selectedFileRef, onVideoSrcReplace);
+  const {
+    scanning, scanProgress, scanStatus, scanResult,
+    error, thumbnails, waveformData,
+    isTranscoding, transcodeProgress, transcodeError, transcodedVideoSrc,
+    handleScan, handleImageScan, resetScanState,
+  } = scan;
+
   const [checks, setChecks] = useState<ValidationCheck[]>([]);
   const [validationResult, setValidationResult] = useState<'COMPLIANT' | 'NON-COMPLIANT' | 'WARNINGS' | null>(null);
-  const [thumbnails, setThumbnails] = useState<string[]>([]);
-  const [waveformData, setWaveformData] = useState<number[]>([]);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const [contrastChecks, setContrastChecks] = useState<ContrastCheck[]>([]);
   const [transcription, setTranscription] = useState<TranscriptionResult | undefined>(undefined);
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(DEFAULT_SUBTITLE_STYLE);
-  const [error, setError] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'specs' | 'feedback' | 'tools'>('feedback');
   const [slateForceOpen, setSlateForceOpen] = useState(0);
-
-  // ── Edit timeline state ──
-  const [timelineBlocks, setTimelineBlocks] = useState<TimelineBlock[]>([]);
-  const [tlExporting, setTlExporting] = useState(false);
-  const [tlExportPct, setTlExportPct] = useState(0);
-  const [, setTlExportLabel] = useState('');
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [tlPreview, setTlPreview] = useState<TimelinePreview | null>(null);
-  // Unified timeline playback
-  const [tlGlobalTime, setTlGlobalTime] = useState(0);
-  const [tlIsPlaying, setTlIsPlaying] = useState(false);
-  const tlAnimRef = useRef(0);
-  const tlLastFrameRef = useRef(0);
-  const [feedbackCount, setFeedbackCount] = useState(0);
-  const [feedbackMarkers, setFeedbackMarkers] = useState<{ time: number; id: string; author: string }[]>([]);
-  const [feedbackMarkerRanges, setFeedbackMarkerRanges] = useState<{ start: number; end: number; id: string; author: string }[]>([]);
-  const [stagedMarker, setStagedMarker] = useState<{ start: number; end: number; strokes?: AnnotationStroke[] } | null>(null);
-  const [annotationOverlay, setAnnotationOverlay] = useState<AnnotationStroke[] | null>(null);
-  const [isTranscoding, setIsTranscoding] = useState(false);
-  const [transcodeProgress, setTranscodeProgress] = useState(0);
-  const [transcodeError, setTranscodeError] = useState<string | null>(null);
-  const [transcodedVideoSrc, setTranscodedVideoSrc] = useState<string | null>(null);
   const snapshotCounterRef = useRef(0);
   const videoPlayerRef = useRef<VideoPlayerHandle>(null);
+
+  // ── Edit timeline ──
+  const timeline = useTimeline({
+    videoEl, videoCurrentTime, scanResult, selectedFile,
+    transcription, subtitleStyle, videoPlayerRef,
+  });
+  const {
+    timelineBlocks, setTimelineBlocks, tlExporting, tlExportPct,
+    showExportModal, setShowExportModal, tlPreview, tlGlobalTime, tlIsPlaying,
+    tlRanges, handleAddSlateBlock, handleTimelineExport,
+    handleTlPlayPause, handleTlSeek, handleTlAddBlack, handleTlAddImage, handleTlAddBip,
+  } = timeline;
+  const feedback = useFeedback(selectedFile, videoPlayerRef, setActiveRightTab);
+  const {
+    feedbackCount, setFeedbackCount, feedbackMarkers, setFeedbackMarkers,
+    feedbackMarkerRanges, setFeedbackMarkerRanges,
+    stagedMarker, setStagedMarker, annotationOverlay, setAnnotationOverlay,
+    handlePlaceMarker, handleImagePlaceMarker, handleMarkerMove,
+    handleMarkerRangeMove, handleMarkerSetRange, resetFeedback,
+  } = feedback;
 
   // Refs so the unmount cleanup always sees the latest blob URLs (avoids stale closure)
   const videoSrcRef = useRef<string | null>(null);
@@ -242,23 +156,15 @@ const App: React.FC = () => {
     const fileIsImage = file.type.startsWith('image/');
     setIsImage(fileIsImage);
     setSelectedFile(file);
+    selectedFileRef.current = file;
     setVideoSrc(URL.createObjectURL(file));
-    setScanResult(null);
+    resetScanState();
     setChecks([]);
-    setThumbnails([]);
-    setWaveformData([]);
     setContrastChecks([]);
     setTranscription(undefined);
-    setError(null);
     setVideoEl(null);
     setActiveRightTab('feedback');
-    setFeedbackCount(0);
-    setFeedbackMarkers([]);
-    setAnnotationOverlay(null);
-    setIsTranscoding(false);
-    setTranscodeProgress(0);
-    setTranscodeError(null);
-    setTranscodedVideoSrc(null);
+    resetFeedback();
     snapshotCounterRef.current = 0;
 
     if (fileIsImage) {
@@ -309,77 +215,6 @@ const App: React.FC = () => {
     setValidationResult(result);
   }, [scanResult, selectedPreset, customPresets, contrastChecks]);
 
-  const handleImageScan = async (file: File) => {
-    setScanning(true);
-    setError(null);
-    try {
-      const result = await scanImageFile(file);
-      setScanResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read image');
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const handleScan = async (fileOverride?: File) => {
-    const file = fileOverride ?? selectedFile;
-    if (!file) return;
-
-    setScanning(true);
-    setScanProgress(0);
-    setScanStatus('Loading FFmpeg…');
-    setError(null);
-    setChecks([]);
-    setValidationResult(null);
-    setScanResult(null);
-    setThumbnails([]);
-    setWaveformData([]);
-    setIsTranscoding(false);
-    setTranscodeProgress(0);
-    setTranscodeError(null);
-    setTranscodedVideoSrc(null);
-
-    try {
-      await runScan(file, {
-        thumbnailCount: 10,
-        onProgress: (pct, label) => { setScanProgress(pct); setScanStatus(label); },
-        onScanReady: (scan) => {
-          setScanResult(scan);
-          // Pre-arm transcode spinner so it shows immediately in VideoPlayer
-          if (scan.video && needsTranscodeCodec(scan.video.codec)) {
-            setIsTranscoding(true);
-            setTranscodeProgress(0);
-          }
-        },
-        onLoudnessReady: (lufs, truePeak) => {
-          setScanResult(prev =>
-            prev?.audio ? { ...prev, audio: { ...prev.audio, lufs, truePeak } } : prev
-          );
-        },
-        onTranscodeReady: (url) => {
-          setVideoSrc(prev => {
-            if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-            return url;
-          });
-          setTranscodedVideoSrc(url);
-          setIsTranscoding(false);
-        },
-        onTranscodeError: (msg) => {
-          setTranscodeError(msg);
-          setIsTranscoding(false);
-        },
-        onWaveformReady: (wf) => { setWaveformData(wf); },
-        onThumbnailsReady: (thumbs) => { setThumbnails(thumbs); },
-      });
-      setScanStatus('');
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err) || 'Scan failed');
-    } finally {
-      setScanning(false);
-    }
-  };
 
   const buildReport = (): ValidationReport => ({
     timestamp: new Date().toISOString(),
@@ -420,311 +255,7 @@ const App: React.FC = () => {
     setContrastChecks(newChecks);
   };
 
-  const handlePlaceMarker = useCallback((start: number, end: number, strokes: AnnotationStroke[]) => {
-    videoPlayerRef.current?.seekTo(start * 1000);
-    setStagedMarker({ start, end, strokes: strokes.length > 0 ? strokes : undefined });
-    setActiveRightTab('feedback');
-  }, []);
 
-  const handleImagePlaceMarker = useCallback((strokes: AnnotationStroke[]) => {
-    setStagedMarker({ start: 0, end: 0, strokes: strokes.length > 0 ? strokes : undefined });
-    setActiveRightTab('feedback');
-  }, []);
-
-  const handleMarkerMove = useCallback((id: string, newTime: number) => {
-    if (!selectedFile) return;
-    updateCommentTimecode(id, newTime);
-    setFeedbackMarkers(prev => prev.map(m => m.id === id ? { ...m, time: newTime } : m));
-  }, [selectedFile]);
-
-  const handleMarkerRangeMove = useCallback((id: string, newStart: number, newEnd: number) => {
-    if (!selectedFile) return;
-    updateCommentTimecodes(id, newStart, newEnd);
-    setFeedbackMarkerRanges(prev => prev.map(r => r.id === id ? { ...r, start: newStart, end: newEnd } : r));
-  }, [selectedFile]);
-
-  const handleMarkerSetRange = useCallback((id: string, end: number) => {
-    if (!selectedFile) return;
-    updateCommentRange(id, end);
-  }, [selectedFile]);
-
-  // ── Timeline handlers ──
-  const handleAddSlateBlock = useCallback((block: TimelineBlock) => {
-    setTimelineBlocks(prev => {
-      // If empty, initialize with the video block first
-      if (prev.length === 0) {
-        const videoDur = scanResult?.file?.duration ?? 30;
-        const videoBlock: TimelineBlock = {
-          id: blockId(),
-          type: 'video',
-          duration: videoDur,
-          label: selectedFile?.name ?? 'Video',
-        };
-        return [block, videoBlock];
-      }
-      // Insert slate before the first video block
-      const videoIdx = prev.findIndex(b => b.type === 'video');
-      const next = [...prev];
-      next.splice(videoIdx >= 0 ? videoIdx : 0, 0, block);
-      return next;
-    });
-  }, [scanResult, selectedFile]);
-
-  const handleTimelineExport = useCallback(async (settings?: ExportSettings) => {
-    if (!selectedFile || tlExporting) return;
-    setShowExportModal(false);
-    setTlExporting(true);
-    setTlExportPct(0);
-    setTlExportLabel('Starting…');
-
-    const codecCfg: ExportCodecConfig = settings
-      ? { codec: settings.codec, quality: settings.quality, streamCopy: settings.streamCopy }
-      : { codec: 'h264', quality: 'medium' };
-    const ext = codecCfg.codec.startsWith('prores') ? 'mov'
-      : (codecCfg.codec === 'xdcam' || codecCfg.codec === 'dnxhd' || codecCfg.codec === 'dnxhr') ? 'mxf'
-      : 'mp4';
-
-    // Check if subtitles should be burned in
-    const subsEnabled = videoPlayerRef.current?.areSubtitlesEnabled() ?? false;
-    const subBurnIn: SubtitleBurnIn | undefined =
-      subsEnabled && transcription?.segments?.length
-        ? { segments: transcription.segments, style: subtitleStyle, maxCharsPerLine: subtitleStyle.maxCharsPerLine }
-        : undefined;
-
-    // If no timeline blocks, create a single video block (direct export)
-    const hasTimeline = timelineBlocks.length >= 2;
-    const effectiveBlocks = hasTimeline
-      ? timelineBlocks.map(b => ({ type: b.type, duration: b.duration, slatePng: b.slatePng }))
-      : [{ type: 'video' as const, duration: 0, slatePng: undefined }];
-
-    try {
-      // ── Native export via helper ──
-      if (settings?.useNative) {
-        const { runNativeExport } = await import('./api/helperClient');
-        const outputPath = await runNativeExport(
-          selectedFile,
-          effectiveBlocks,
-          { codec: codecCfg.codec, quality: codecCfg.quality, streamCopy: codecCfg.streamCopy },
-          (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
-          subBurnIn,
-        );
-        setTlExportLabel(`Saved to ${outputPath}`);
-        return;
-      }
-
-      // ── Browser WASM export ──
-      const url = await exportTimeline(selectedFile, effectiveBlocks, {
-        onProgress: (pct, label) => { setTlExportPct(pct); setTlExportLabel(label); },
-        codec: codecCfg,
-        subtitleBurnIn: subBurnIn,
-      });
-      const a = document.createElement('a');
-      a.download = `${selectedFile.name.replace(/\.[^.]+$/, '')}_edit.${ext}`;
-      a.href = url;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Timeline export failed:', err);
-      setTlExportLabel(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
-    } finally {
-      setTlExporting(false);
-    }
-  }, [selectedFile, timelineBlocks, tlExporting]);
-
-  // ── Auto-clear timeline if only video block remains ──
-  useEffect(() => {
-    if (timelineBlocks.length === 1 && timelineBlocks[0].type === 'video') {
-      setTimelineBlocks([]);
-      setTlGlobalTime(0);
-      setTlIsPlaying(false);
-      setTlPreview(null);
-    }
-  }, [timelineBlocks]);
-
-  // ── Compute timeline block ranges (memoized) ──
-  const tlRanges = React.useMemo(() => {
-    if (timelineBlocks.length < 2) return null;
-    let acc = 0;
-    const ranges = timelineBlocks.map(b => {
-      const start = acc;
-      acc += b.duration;
-      return { ...b, start, end: acc };
-    });
-    const videoBlock = ranges.find(r => r.type === 'video');
-    if (!videoBlock) return null;
-    return { ranges, videoBlock, totalDuration: acc };
-  }, [timelineBlocks]);
-
-  // ── Resolve which block is at a given global time ──
-  const resolveBlockAt = useCallback((t: number) => {
-    if (!tlRanges) return null;
-    return tlRanges.ranges.find(r => t >= r.start && t < r.end) ?? tlRanges.ranges[tlRanges.ranges.length - 1];
-  }, [tlRanges]);
-
-  // ── Which block is the playhead in? ──
-  const tlCurrentBlock = resolveBlockAt(tlGlobalTime);
-
-  // ── Sync preview overlay based on current block ──
-  useEffect(() => {
-    if (!tlRanges || !tlCurrentBlock) { setTlPreview(null); return; }
-
-    if (tlCurrentBlock.type === 'video') {
-      setTlPreview(null);
-    } else if (tlCurrentBlock.type === 'slate') {
-      setTlPreview({ blockType: 'slate', thumbnail: tlCurrentBlock.thumbnail });
-    } else {
-      setTlPreview({ blockType: 'black' });
-    }
-  }, [tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges]);
-
-  // ── Playback engine ──
-  // Non-video blocks: rAF advances tlGlobalTime until block ends, then transitions.
-  // Video block: video element plays natively; onTimeUpdate syncs tlGlobalTime.
-  // This avoids two loops fighting each other.
-
-  // rAF loop — only runs during non-video blocks
-  useEffect(() => {
-    if (!tlIsPlaying || !tlRanges || !tlCurrentBlock) return;
-    if (tlCurrentBlock.type === 'video') return; // video element drives time
-
-    // Pause video if it's playing
-    if (videoEl && !videoEl.paused) videoEl.pause();
-
-    tlLastFrameRef.current = performance.now();
-
-    const tick = () => {
-      const now = performance.now();
-      const dt = (now - tlLastFrameRef.current) / 1000;
-      tlLastFrameRef.current = now;
-
-      setTlGlobalTime(prev => {
-        const next = prev + dt;
-        if (next >= tlRanges.totalDuration) {
-          setTlIsPlaying(false);
-          return tlRanges.totalDuration;
-        }
-        return next;
-      });
-
-      tlAnimRef.current = requestAnimationFrame(tick);
-    };
-
-    tlAnimRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(tlAnimRef.current);
-  }, [tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges, videoEl]);
-
-  // Video block playback — start/stop video element
-  useEffect(() => {
-    if (!tlIsPlaying || !tlRanges || !tlCurrentBlock || !videoEl) return;
-    if (tlCurrentBlock.type !== 'video') return;
-
-    // Sync video position and play
-    const videoOffset = tlGlobalTime - tlCurrentBlock.start;
-    if (Math.abs(videoEl.currentTime - videoOffset) > 0.3) {
-      videoEl.currentTime = videoOffset;
-    }
-    if (videoEl.paused) videoEl.play().catch(() => {});
-
-    return () => {
-      // Don't pause here — let the block transition handle it
-    };
-  }, [tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges, videoEl]);
-
-  // Video timeupdate → sync tlGlobalTime (video is source of truth)
-  useEffect(() => {
-    if (!tlIsPlaying || !tlCurrentBlock || tlCurrentBlock.type !== 'video') return;
-    setTlGlobalTime(tlCurrentBlock.start + videoCurrentTime);
-  }, [videoCurrentTime]);
-
-  // ── Timeline play/pause/seek handlers ──
-  const handleTlPlayPause = useCallback(() => {
-    if (!tlRanges) return;
-    if (tlIsPlaying) {
-      setTlIsPlaying(false);
-      if (videoEl && !videoEl.paused) videoEl.pause();
-    } else {
-      // If at the end, restart
-      if (tlGlobalTime >= tlRanges.totalDuration - 0.1) {
-        setTlGlobalTime(0);
-      }
-      setTlIsPlaying(true);
-      const block = resolveBlockAt(tlGlobalTime);
-      if (block?.type === 'video' && videoEl) {
-        videoEl.currentTime = tlGlobalTime - block.start;
-        videoEl.play().catch(() => {});
-      }
-    }
-  }, [tlRanges, tlIsPlaying, tlGlobalTime, resolveBlockAt, videoEl]);
-
-  const handleTlSeek = useCallback((time: number) => {
-    if (!tlRanges) return;
-    const clamped = Math.max(0, Math.min(time, tlRanges.totalDuration));
-    setTlGlobalTime(clamped);
-    const block = resolveBlockAt(clamped);
-    if (block?.type === 'video' && videoEl) {
-      videoEl.currentTime = clamped - block.start;
-    }
-  }, [tlRanges, resolveBlockAt, videoEl]);
-
-  // ── Add block helpers: auto-create video block if timeline is empty ──
-  const ensureVideoBlock = useCallback((addBlock: TimelineBlock): TimelineBlock[] => {
-    const videoDur = scanResult?.file?.duration ?? 30;
-    const videoBlock: TimelineBlock = {
-      id: blockId(),
-      type: 'video',
-      duration: videoDur,
-      label: selectedFile?.name ?? 'Video',
-    };
-    return [videoBlock, addBlock];
-  }, [scanResult, selectedFile]);
-
-  const handleTlAddBlack = useCallback((dur: number) => {
-    const newBlock: TimelineBlock = { id: blockId(), type: 'black', duration: dur, label: 'Black' };
-    setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
-  }, [ensureVideoBlock]);
-
-  const handleTlAddImage = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const img = new Image();
-        img.onload = () => {
-          const c = document.createElement('canvas');
-          c.width = img.width;
-          c.height = img.height;
-          c.getContext('2d')!.drawImage(img, 0, 0);
-          c.toBlob(blob => {
-            if (!blob) return;
-            blob.arrayBuffer().then(buf => {
-              const newBlock: TimelineBlock = {
-                id: blockId(),
-                type: 'slate' as const,
-                duration: 5,
-                label: file.name.replace(/\.[^.]+$/, ''),
-                thumbnail: dataUrl,
-                slatePng: new Uint8Array(buf),
-              };
-              setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
-            });
-          }, 'image/png');
-        };
-        img.src = dataUrl;
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  }, [ensureVideoBlock]);
-
-  const handleTlAddBip = useCallback(() => {
-    const newBlock: TimelineBlock = { id: blockId(), type: 'black', duration: 1, label: 'Bip' };
-    setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
-  }, [ensureVideoBlock]);
 
   const handleSnapshot = useCallback(async (_time: number) => {
     const el = videoEl ?? videoPlayerRef.current?.getVideoElement();
@@ -740,179 +271,6 @@ const App: React.FC = () => {
     a.click();
   }, [videoEl, selectedFile]);
 
-  const handlePresetChange = (value: string) => {
-    if (value === '__add_custom__') {
-      setCustomForm({ name: '', rules: makeDefaultRules() });
-      setEditingPresetId(null);
-      setShowCustomModal(true);
-    } else {
-      setSelectedPreset(value);
-    }
-  };
-
-  const buildPresetFromForm = (id: string): ValidationPreset => {
-    const rs = customForm.rules;
-    const on   = (rid: string) => (rs[rid]?.condition ?? 'ignore') !== 'ignore';
-    const cond = (rid: string) => rs[rid]?.condition ?? 'ignore';
-    const v    = (rid: string) => rs[rid]?.value ?? '';
-    const lst  = (rid: string) => v(rid).split(',').map(s => s.trim()).filter(Boolean);
-    const num  = (rid: string) => { const n = parseFloat(v(rid)); return isNaN(n) ? undefined : n; };
-    const numLst = (rid: string) => lst(rid).map(Number).filter(n => !isNaN(n));
-
-    const containerFormats = on('fileFormat') ? lst('fileFormat') : ['mp4', 'mov'];
-    const allowedFileExtensions = on('fileExt') ? lst('fileExt') : undefined;
-    const c_fileSize = cond('fileSize');
-    const maxFileSizeMb = on('fileSize') && ['lt','lte','equals','notEquals'].includes(c_fileSize) ? num('fileSize') : undefined;
-    const requireFastStart = on('moovAtom')
-      ? ((cond('moovAtom') === 'notEquals' && !v('moovAtom').toLowerCase().includes('beginning')) ||
-         (cond('moovAtom') !== 'notEquals' && v('moovAtom').toLowerCase().includes('beginning')))
-      : undefined;
-
-    const allowedVideoCodecs = on('videoCodec') ? lst('videoCodec') : undefined;
-    const resolutions: ResolutionPreset[] | undefined = on('videoDims')
-      ? lst('videoDims').map(s => { const [w, h] = s.split('x').map(Number); return w && h ? { width: w, height: h, label: `${w}x${h}` } : null; }).filter(Boolean) as ResolutionPreset[]
-      : undefined;
-    const aspectRatios = on('videoAR') ? lst('videoAR') : undefined;
-    const bitDepth = on('videoBitDepth') ? num('videoBitDepth') : undefined;
-    const c_bitrate = cond('videoBitRate');
-    const maxBitrateMbps = on('videoBitRate') && ['lt','lte','equals'].includes(c_bitrate) ? num('videoBitRate') : undefined;
-    const minBitrateMbps = on('videoBitRate') && ['gt','gte'].includes(c_bitrate) ? num('videoBitRate') : undefined;
-    const chromaSubsamplings = on('videoChroma') ? lst('videoChroma') : undefined;
-    const chromaSubsampling = chromaSubsamplings?.[0] ?? '4:2:0';
-    const allowedColorSpaces = on('videoColor') ? lst('videoColor') : undefined;
-    const c_dur = cond('videoDuration');
-    const maxDurationSeconds = on('videoDuration') && ['lt','lte','equals'].includes(c_dur) ? num('videoDuration') : undefined;
-    const minDurationSeconds = on('videoDuration') && ['gt','gte'].includes(c_dur) ? num('videoDuration') : undefined;
-    const frameRates = on('videoFPS') ? (cond('videoFPS') === 'inList' ? numLst('videoFPS') : [num('videoFPS')!].filter(n => !isNaN(n))) : [];
-    const requireProgressive = on('videoScan') ? v('videoScan').toLowerCase().includes('progressive') : false;
-
-    const allowedAudioCodecs = on('audioCodec') ? lst('audioCodec') : undefined;
-    const audioChannelNum = on('audioChannels') ? num('audioChannels') : undefined;
-    const audioChannels = audioChannelNum;
-    const allowedAudioChannels = audioChannelNum !== undefined ? [audioChannelNum] : undefined;
-    const audioSRNum = on('audioSR') ? num('audioSR') : undefined;
-    const audioSampleRate = audioSRNum;
-    const allowedAudioSampleRates = audioSRNum !== undefined ? [audioSRNum] : undefined;
-    let loudnessTarget: number | undefined, loudnessTolerance: number | undefined;
-    let loudnessMin: number | undefined, loudnessMax: number | undefined;
-    if (on('audioLoudness')) {
-      const c_loud = cond('audioLoudness');
-      if (c_loud === 'gte' || c_loud === 'gt') { loudnessMin = num('audioLoudness'); }
-      else if (c_loud === 'lte' || c_loud === 'lt') { loudnessMax = num('audioLoudness'); }
-      else { loudnessTarget = num('audioLoudness'); loudnessTolerance = 1; }
-    }
-    const truePeakMax = on('audioTP') ? num('audioTP') : undefined;
-    const c_abr = cond('audioBR');
-    const minAudioKbps = on('audioBR') && ['gte','gt','equals'].includes(c_abr) ? num('audioBR') : undefined;
-
-    return {
-      id, name: customForm.name.trim(), description: 'Custom preset',
-      containerFormats, allowedFileExtensions, requireFastStart, maxFileSizeMb,
-      allowedVideoCodecs, videoCodecs: allowedVideoCodecs,
-      resolutions: resolutions?.length ? resolutions : undefined,
-      aspectRatios, bitDepth, maxBitrateMbps, minBitrateMbps,
-      chromaSubsampling, chromaSubsamplings, allowedColorSpaces,
-      maxDurationSeconds, minDurationSeconds, frameRates, requireProgressive,
-      allowedAudioCodecs, audioChannels, allowedAudioChannels,
-      audioSampleRate, allowedAudioSampleRates,
-      loudnessTarget, loudnessTolerance, loudnessMin, loudnessMax,
-      truePeakMax, minAudioKbps,
-    };
-  };
-
-  const doSave = (presetId: string) => {
-    const savedPreset = buildPresetFromForm(presetId);
-    let updated: ValidationPreset[];
-    // Replace if a custom preset with this ID already exists (edit or overwrite);
-    // otherwise add (new preset, or first-time override of a built-in).
-    if (customPresets.some(p => p.id === presetId)) {
-      updated = customPresets.map(p => p.id === presetId ? savedPreset : p);
-    } else {
-      updated = [...customPresets, savedPreset];
-    }
-    setCustomPresets(updated);
-    localStorage.setItem('customPresets', JSON.stringify(updated));
-    setSelectedPreset(presetId);
-    setEditingPresetId(null);
-    setOverwriteTarget(null);
-    setShowCustomModal(false);
-  };
-
-  const saveCustomPreset = () => {
-    if (!customForm.name.trim()) return;
-    const name = customForm.name.trim().toLowerCase();
-
-    // Editing an existing preset → always confirm before overwriting
-    if (editingPresetId) {
-      const current = allPresets.find(p => p.id === editingPresetId);
-      if (current) { setOverwriteTarget(current); return; }
-    }
-
-    // Creating new: check for a name conflict with a different preset
-    const conflict = allPresets.find(p =>
-      p.name.trim().toLowerCase() === name && p.id !== editingPresetId
-    );
-    if (conflict) { setOverwriteTarget(conflict); return; }
-
-    doSave(`custom-${Date.now()}`);
-  };
-
-  const deleteCustomPreset = (id: string) => {
-    const updated = customPresets.filter(p => p.id !== id);
-    setCustomPresets(updated);
-    localStorage.setItem('customPresets', JSON.stringify(updated));
-    if (selectedPreset === id) {
-      setSelectedPreset(validationPresets.some(p => p.id === id) ? id : 'social-media-standard');
-    }
-  };
-
-  const presetToRules = (preset: ValidationPreset): Record<string, RuleState> => {
-    const r = makeDefaultRules();
-    const set = (id: string, cond: string, val: string) => { r[id] = { condition: cond, value: val }; };
-    if (preset.containerFormats?.length)       set('fileFormat',    'inList',  preset.containerFormats.join(', '));
-    if (preset.allowedFileExtensions?.length)  set('fileExt',       'inList',  preset.allowedFileExtensions.join(', '));
-    if (preset.maxFileSizeMb)                  set('fileSize',      'lte',    String(preset.maxFileSizeMb));
-    if (preset.requireFastStart !== undefined)  set('moovAtom',      preset.requireFastStart ? 'equals' : 'notEquals', 'beginning');
-    const vCodecs = preset.allowedVideoCodecs ?? preset.videoCodecs ?? [];
-    if (vCodecs.length)                        set('videoCodec',    'inList',  vCodecs.join(', '));
-    if (preset.resolutions?.length)            set('videoDims',     'inList',  preset.resolutions.map(res => `${res.width}x${res.height}`).join(', '));
-    if (preset.aspectRatios?.length)           set('videoAR',       'inList',  preset.aspectRatios.join(', '));
-    if (preset.bitDepth !== undefined)         set('videoBitDepth', 'gte',    String(preset.bitDepth));
-    if (preset.maxBitrateMbps)                 set('videoBitRate',  'lte',    String(preset.maxBitrateMbps));
-    else if (preset.minBitrateMbps)            set('videoBitRate',  'gte',    String(preset.minBitrateMbps));
-    else if (preset.maxBitrate)                set('videoBitRate',  'lte',    String((preset.maxBitrate / 1_000_000).toFixed(1)));
-    else if (preset.minBitrate)                set('videoBitRate',  'gte',    String((preset.minBitrate / 1_000_000).toFixed(1)));
-    const chromaSubs = preset.chromaSubsamplings ?? (preset.chromaSubsampling ? [preset.chromaSubsampling] : []);
-    if (chromaSubs.length)                     set('videoChroma',   'inList',  chromaSubs.join(', '));
-    if (preset.allowedColorSpaces?.length)     set('videoColor',    'inList',  preset.allowedColorSpaces.join(', '));
-    if (preset.maxDurationSeconds !== undefined) set('videoDuration', 'lte',   String(preset.maxDurationSeconds));
-    else if (preset.minDurationSeconds !== undefined) set('videoDuration', 'gte', String(preset.minDurationSeconds));
-    if (preset.frameRates?.length)             set('videoFPS',      preset.frameRates.length === 1 ? 'equals' : 'inList', preset.frameRates.join(', '));
-    if (preset.requireProgressive)             set('videoScan',     'equals',  'progressive');
-    const aCodes = preset.allowedAudioCodecs ?? (preset.audioCodec ? [preset.audioCodec] : []);
-    if (aCodes.length)                         set('audioCodec',    'inList',  aCodes.join(', '));
-    const aChans = preset.allowedAudioChannels ?? (preset.audioChannels ? [preset.audioChannels] : []);
-    if (aChans.length)                         set('audioChannels', 'equals',  String(aChans[0]));
-    const aSRs = preset.allowedAudioSampleRates ?? (preset.audioSampleRate ? [preset.audioSampleRate] : []);
-    if (aSRs.length)                           set('audioSR',       'equals',  String(aSRs[0]));
-    if (preset.loudnessMin !== undefined)      set('audioLoudness', 'gte',     String(preset.loudnessMin));
-    else if (preset.loudnessMax !== undefined) set('audioLoudness', 'lte',     String(preset.loudnessMax));
-    else if (preset.loudnessTarget !== undefined) set('audioLoudness', 'equals', String(preset.loudnessTarget));
-    if (preset.truePeakMax !== undefined)      set('audioTP',       'lte',     String(preset.truePeakMax));
-    if (preset.minAudioKbps)                   set('audioBR',       'gte',     String(preset.minAudioKbps));
-    return r;
-  };
-
-  const openEditPreset = (presetId: string) => {
-    const preset = allPresets.find(p => p.id === presetId);
-    if (!preset) return;
-    setCustomForm({ name: preset.name, rules: presetToRules(preset) });
-    setEditingPresetId(presetId);
-    setShowCustomModal(true);
-  };
-
-  const updateRule = (rId: string, state: RuleState) =>
-    setCustomForm(prev => ({ ...prev, rules: { ...prev.rules, [rId]: state } }));
 
   return (
     <div className="app">
@@ -1566,141 +924,6 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
-    </div>
-  );
-};
-
-// ── RuleRow ───────────────────────────────────────────────────────
-const RuleRow: React.FC<{ def: RuleDef; state: RuleState; onChange: (s: RuleState) => void }> = ({ def, state, onChange }) => {
-  const [chipOpen, setChipOpen] = React.useState(false);
-  const chipRef = React.useRef<HTMLDivElement>(null);
-  const enabled = state.condition !== 'ignore';
-
-  React.useEffect(() => {
-    if (!chipOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (chipRef.current && !chipRef.current.contains(e.target as Node)) setChipOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [chipOpen]);
-
-  const toggleChip = (chip: string) => {
-    if (state.condition === 'inList') {
-      const current = state.value.split(',').map(s => s.trim()).filter(Boolean);
-      const idx = current.findIndex(s => s.toLowerCase() === chip.toLowerCase());
-      const updated = idx >= 0 ? current.filter((_, i) => i !== idx) : [...current, chip];
-      onChange({ ...state, value: updated.join(', ') });
-    } else {
-      onChange({ ...state, value: chip });
-      setChipOpen(false);
-    }
-  };
-
-  const isChipActive = (chip: string) =>
-    state.condition === 'inList'
-      ? state.value.split(',').map(s => s.trim().toLowerCase()).includes(chip.toLowerCase())
-      : state.value.toLowerCase() === chip.toLowerCase();
-
-  const inputStyle: React.CSSProperties = {
-    background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)',
-    borderRadius: '4px', color: 'var(--color-text-primary)', fontSize: '0.78rem',
-    padding: '3px 6px', minWidth: 0,
-  };
-
-  return (
-    <div
-      style={{
-        display: 'flex', alignItems: 'center', gap: '8px',
-        padding: '5px 20px', minHeight: '36px',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
-        background: enabled ? 'rgba(59,130,246,0.06)' : 'transparent',
-        cursor: enabled ? 'default' : 'pointer',
-      }}
-      onClick={!enabled ? () => onChange({ ...state, condition: def.dc }) : undefined}
-    >
-      <input
-        type="checkbox"
-        checked={enabled}
-        onChange={e => onChange({ ...state, condition: e.target.checked ? def.dc : 'ignore' })}
-        onClick={e => e.stopPropagation()}
-        style={{ cursor: 'pointer', flexShrink: 0, accentColor: '#E1FF1C', width: '14px', height: '14px' }}
-      />
-      <span style={{ width: '196px', flexShrink: 0, fontSize: '0.8125rem', color: enabled ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}>
-        {def.label}
-      </span>
-      {enabled ? (
-        <>
-          <select
-            value={state.condition}
-            onChange={e => onChange({ ...state, condition: e.target.value })}
-            style={{ ...inputStyle, width: '148px', flexShrink: 0 }}
-          >
-            {(def.conditions ?? DEFAULT_CONDITIONS).map(c => (
-              <option key={c} value={c}>{CONDITION_LABELS[c]}</option>
-            ))}
-          </select>
-          <div ref={chipRef} style={{ position: 'relative', flex: 1, display: 'flex', gap: '4px', minWidth: 0 }}>
-            <input
-              type="text"
-              value={state.value}
-              onChange={e => onChange({ ...state, value: e.target.value })}
-              placeholder={state.condition === 'inList' ? 'value1, value2…' : 'value'}
-              style={{ ...inputStyle, flex: 1, width: '100%' }}
-            />
-            {def.chips && (
-              <>
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); setChipOpen(o => !o); }}
-                  style={{ ...inputStyle, flexShrink: 0, padding: '3px 7px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                  title="Quick pick"
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10">
-                    <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-                  </svg>
-                </button>
-                {chipOpen && (
-                  <div style={{
-                    position: 'absolute', top: 'calc(100% + 4px)', right: 0,
-                    background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
-                    borderRadius: '8px', padding: '8px', zIndex: 600,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                    display: 'flex', flexWrap: 'wrap', gap: '5px', minWidth: '180px',
-                  }}>
-                    {def.chips.map(chip => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => toggleChip(chip)}
-                        style={{
-                          padding: '3px 10px', borderRadius: '14px', fontSize: '0.75rem',
-                          cursor: 'pointer', border: '1px solid', whiteSpace: 'nowrap',
-                          background: isChipActive(chip) ? 'var(--color-accent)' : 'var(--color-bg-tertiary)',
-                          borderColor: isChipActive(chip) ? 'var(--color-accent)' : 'var(--border-color)',
-                          color: isChipActive(chip) ? '#fff' : 'var(--color-text-primary)',
-                          fontWeight: isChipActive(chip) ? 600 : 400,
-                        }}
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-          {def.unit && (
-            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem', flexShrink: 0, width: '36px', textAlign: 'left' }}>
-              {def.unit}
-            </span>
-          )}
-        </>
-      ) : (
-        <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-          click to enable
-        </span>
       )}
     </div>
   );
