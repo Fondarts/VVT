@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
+import { FileVideo, Image as ImageIcon, Music, Folder } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
 
+const TYPE_ICON_SM: Record<string, React.ReactNode> = {
+  video: <FileVideo size={14} style={{ color: '#FA4900' }} />,
+  image: <ImageIcon size={14} style={{ color: '#34C759' }} />,
+  audio: <Music size={14} style={{ color: '#0A84FF' }} />,
+};
+
 interface Props {
   folders: ProjectFolder[];
   versionGroups: VersionGroup[];
+  viewMode: 'grid' | 'list';
   onFolderClick: (path: string) => void;
   onFileDoubleClick: (file: ProjectFile) => void;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, onFolderClick, onFileDoubleClick }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
   const isEmpty = folders.length === 0 && versionGroups.length === 0;
@@ -24,9 +32,111 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, onFolderClic
     );
   }
 
+  if (viewMode === 'list') {
+    return (
+      <div style={{
+        background: 'var(--color-bg-secondary)', border: '1px solid var(--border-color)',
+        borderRadius: '10px', overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '12px',
+          padding: '8px 16px', borderBottom: '1px solid var(--border-color)',
+          fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase',
+          letterSpacing: '0.06em', color: 'var(--color-text-muted)',
+        }}>
+          <span style={{ width: '18px', flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>Name</span>
+          <span style={{ minWidth: '60px', flexShrink: 0 }}>Type</span>
+          <span style={{ minWidth: '80px', flexShrink: 0 }}>Size</span>
+          <span style={{ minWidth: '60px', flexShrink: 0 }}>Version</span>
+        </div>
+
+        {/* Folders */}
+        {folders.map(f => (
+          <div
+            key={f.id}
+            onClick={() => onFolderClick(f.path)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '12px',
+              padding: '8px 16px', cursor: 'pointer',
+              borderBottom: '1px solid var(--border-color)',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            <Folder size={14} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: '0.8125rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {f.name}
+            </span>
+            <span style={{ minWidth: '60px', flexShrink: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>Folder</span>
+            <span style={{ minWidth: '80px', flexShrink: 0 }} />
+            <span style={{ minWidth: '60px', flexShrink: 0 }} />
+          </div>
+        ))}
+
+        {/* Files */}
+        {versionGroups.map(g => (
+          <React.Fragment key={g.baseName}>
+            <div
+              onDoubleClick={() => onFileDoubleClick(g.latest)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '8px 16px', cursor: 'pointer',
+                borderBottom: '1px solid var(--border-color)',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              {TYPE_ICON_SM[g.latest.type] || TYPE_ICON_SM.video}
+              <span style={{ flex: 1, fontSize: '0.8125rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {g.latest.name}
+              </span>
+              <span style={{ minWidth: '60px', flexShrink: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                {g.latest.extension.toUpperCase()}
+              </span>
+              <span style={{ minWidth: '80px', flexShrink: 0, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                {(g.latest.sizeBytes / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <span style={{ minWidth: '60px', flexShrink: 0 }}>
+                {g.latest.versionTag ? (
+                  <span style={{
+                    background: 'var(--color-accent)', color: '#000', borderRadius: '4px',
+                    padding: '1px 6px', fontSize: '0.65rem', fontWeight: 700,
+                  }}>
+                    {g.latest.versionTag.toUpperCase()}
+                  </span>
+                ) : null}
+                {g.versions.length > 1 && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setExpandedGroup(expandedGroup === g.baseName ? null : g.baseName); }}
+                    style={{
+                      background: 'var(--color-bg-tertiary)', border: '1px solid var(--border-color)',
+                      borderRadius: '4px', padding: '1px 6px', fontSize: '0.65rem',
+                      color: 'var(--color-text-muted)', cursor: 'pointer', marginLeft: '4px',
+                    }}
+                  >
+                    {g.versions.length}
+                  </button>
+                )}
+              </span>
+            </div>
+            {expandedGroup === g.baseName && g.versions.length > 1 && (
+              <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.01)' }}>
+                <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
+              </div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+
+  // Grid mode
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {/* Folders first */}
       {folders.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
           {folders.map(f => (
@@ -35,7 +145,6 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, onFolderClic
         </div>
       )}
 
-      {/* Files */}
       {versionGroups.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
           {versionGroups.map(g => (

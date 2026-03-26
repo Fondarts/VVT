@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { FolderPlus, Upload, Loader2 } from 'lucide-react';
+import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { ProjectBreadcrumb } from './ProjectBreadcrumb';
 import { FileGrid } from './FileGrid';
@@ -24,6 +24,7 @@ export const ProjectView: React.FC<Props> = ({
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // Recursively read all files from a dropped directory entry
   const readEntryFiles = useCallback(async (entry: FileSystemEntry, basePath: string): Promise<{ file: File; relativePath: string }[]> => {
@@ -111,7 +112,27 @@ export const ProjectView: React.FC<Props> = ({
           onNavigate={onNavigate}
           onGoToDashboard={onGoToDashboard}
         />
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 6, overflow: 'hidden' }}>
+            <button
+              className={`btn btn-sm ${viewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: 0, padding: '4px 8px' }}
+              onClick={() => setViewMode('grid')}
+              aria-label="Grid view"
+              title="Grid view"
+            >
+              <LayoutGrid size={14} />
+            </button>
+            <button
+              className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ borderRadius: 0, padding: '4px 8px' }}
+              onClick={() => setViewMode('list')}
+              aria-label="List view"
+              title="List view"
+            >
+              <List size={14} />
+            </button>
+          </div>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
             <FolderPlus size={14} /> New Folder
           </button>
@@ -140,6 +161,7 @@ export const ProjectView: React.FC<Props> = ({
           <FileGrid
             folders={folders}
             versionGroups={versionGroups}
+            viewMode={viewMode}
             onFolderClick={onNavigate}
             onFileDoubleClick={(pf) => {
               const localFile = getLocalFile(pf);
