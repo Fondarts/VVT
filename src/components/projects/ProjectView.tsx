@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { FolderPlus, Upload, Loader2, LayoutGrid, List, HardDrive, Check } from 'lucide-react';
+import { useToast } from '../Toast';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
 import { useDirectoryAccess } from '../../hooks/useDirectoryAccess';
@@ -22,6 +23,7 @@ export const ProjectView: React.FC<Props> = ({
   projectId, projectName, path, breadcrumbs, userId,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
+  const { addToast } = useToast();
   const dirAccess = useDirectoryAccess();
   const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path, dirAccess.resolveFile);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -190,11 +192,22 @@ export const ProjectView: React.FC<Props> = ({
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
               // Try memory cache first, then directory access
+              if (dirAccess.connected) {
+                addToast(`Searching for ${pf.name}...`, 'info');
+              }
               const resolved = await resolveLocalFile(pf);
               if (resolved) {
                 onFileOpen(resolved, ctx);
+              } else if (dirAccess.connected) {
+                addToast(`File not found in ${dirAccess.directoryName}. Select it manually.`, 'warning');
+                const input = document.createElement('input');
+                input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
+                input.onchange = () => {
+                  const f = input.files?.[0];
+                  if (f) onFileOpen(f, ctx);
+                };
+                input.click();
               } else {
-                // Last resort: file picker
                 const input = document.createElement('input');
                 input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
                 input.onchange = () => {

@@ -75,27 +75,42 @@ export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null>
 
 /**
  * Resolve a file by name+size within the directory tree (recursive search).
- * Returns the File object if found, null otherwise.
+ * Searches breadth-first with depth limit to avoid scanning huge trees.
  */
 export async function findFileInDirectory(
   dirHandle: FileSystemDirectoryHandle,
   fileName: string,
-  fileSize: number,
+  _fileSize?: number,
+  maxDepth: number = 10,
 ): Promise<File | null> {
+  if (maxDepth <= 0) return null;
+
+  const subdirs: FileSystemDirectoryHandle[] = [];
+
   try {
     for await (const entry of (dirHandle as any).values()) {
       if (entry.kind === 'file' && entry.name === fileName) {
-        const file: File = await entry.getFile();
-        if (file.size === fileSize) return file;
+        try {
+          return await entry.getFile();
+        } catch (e) {
+          console.warn(`[DirectoryAccess] Could not read file ${fileName}:`, e);
+        }
       }
       if (entry.kind === 'directory') {
-        const found = await findFileInDirectory(entry, fileName, fileSize);
-        if (found) return found;
+        subdirs.push(entry);
       }
     }
-  } catch {
-    // permission denied or entry not accessible
+  } catch (e) {
+    // Some directories (e.g. system dirs) may not be readable
+    return null;
   }
+
+  // Search subdirectories
+  for (const sub of subdirs) {
+    const found = await findFileInDirectory(sub, fileName, _fileSize, maxDepth - 1);
+    if (found) return found;
+  }
+
   return null;
 }
 

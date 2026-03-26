@@ -143,10 +143,14 @@ export function useProjectFiles(
     if (cached) return cached;
     // 2. File System Access API (reads from connected directory)
     if (resolveFromDirectory) {
-      const resolved = await resolveFromDirectory(pf.name, pf.sizeBytes);
-      if (resolved) {
-        fileCache.set(cacheKey(pf.name, pf.sizeBytes), resolved); // cache for next time
-        return resolved;
+      try {
+        const resolved = await resolveFromDirectory(pf.name, pf.sizeBytes);
+        if (resolved) {
+          fileCache.set(cacheKey(pf.name, pf.sizeBytes), resolved);
+          return resolved;
+        }
+      } catch (e) {
+        console.warn('[resolveLocalFile] Directory search failed:', e);
       }
     }
     return null;
