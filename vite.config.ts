@@ -18,9 +18,14 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Keep FFmpeg.wasm worker files from being inlined
       output: {
         assetFileNames: 'assets/[name]-[hash][extname]',
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'vendor-pdf': ['jspdf', 'jspdf-autotable'],
+          'vendor-icons': ['lucide-react'],
+        },
       },
     },
   },
