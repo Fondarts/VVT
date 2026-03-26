@@ -50,8 +50,11 @@ import { useCustomPresets } from './hooks/useCustomPresets';
 import { useScan } from './hooks/useScan';
 import { useTimeline } from './hooks/useTimeline';
 import { useFeedback } from './hooks/useFeedback';
+import { ToastProvider, useToast } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const App: React.FC = () => {
+  const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -232,14 +235,24 @@ const App: React.FC = () => {
 
   const handleExportPDF = async () => {
     if (!scanResult) return;
-    const name = scanResult.file.name.replace(/\.[^.]+$/, '');
-    await generatePDF(buildReport(), `Kissd_VVT_Report_${name}.pdf`);
+    try {
+      const name = scanResult.file.name.replace(/\.[^.]+$/, '');
+      await generatePDF(buildReport(), `Kissd_VVT_Report_${name}.pdf`);
+      addToast('PDF report exported', 'success');
+    } catch (err) {
+      addToast(`PDF export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
+    }
   };
 
   const handleExportJSON = async () => {
     if (!scanResult) return;
-    const name = scanResult.file.name.replace(/\.[^.]+$/, '');
-    await generateJSON(buildReport(), `Kissd_VVT_Report_${name}.json`);
+    try {
+      const name = scanResult.file.name.replace(/\.[^.]+$/, '');
+      await generateJSON(buildReport(), `Kissd_VVT_Report_${name}.json`);
+      addToast('JSON report exported', 'success');
+    } catch (err) {
+      addToast(`JSON export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
+    }
   };
 
   const handleSaveThumbnails = () => {
@@ -249,6 +262,7 @@ const App: React.FC = () => {
       a.download = `thumbnail_${index + 1}.jpg`;
       a.click();
     });
+    addToast(`${thumbnails.length} thumbnails saved`, 'success');
   };
 
   const handleContrastCheck = (newChecks: ContrastCheck[]) => {
@@ -421,6 +435,7 @@ const App: React.FC = () => {
               overflow: 'hidden',
             }}>
               {isImage ? (
+                <ErrorBoundary fallbackLabel="Image viewer crashed">
                 <ImageViewer
                   src={videoSrc}
                   width={scanResult?.image?.width ?? 0}
@@ -429,8 +444,10 @@ const App: React.FC = () => {
                   onAnnotationDismiss={() => setAnnotationOverlay(null)}
                   onPlaceMarker={handleImagePlaceMarker}
                 />
+                </ErrorBoundary>
               ) : (
                 <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden' }}>
+                <ErrorBoundary fallbackLabel="Video player crashed">
                 <VideoPlayer
                   ref={videoPlayerRef}
                   videoSrc={videoSrc}
@@ -485,6 +502,7 @@ const App: React.FC = () => {
                     },
                   } : undefined}
                 />
+                </ErrorBoundary>
                 </div>
               )}
 
@@ -723,6 +741,7 @@ const App: React.FC = () => {
               {activeRightTab === 'feedback' && selectedFile && (
                 <div id="panel-feedback" role="tabpanel" aria-labelledby="tab-feedback">
                 {user ? (
+                  <ErrorBoundary fallbackLabel="Feedback panel crashed">
                   <FeedbackPanel
                     fileName={selectedFile.name}
                     fileSize={selectedFile.size}
@@ -744,6 +763,7 @@ const App: React.FC = () => {
                     stagedTimecode={stagedMarker ?? undefined}
                     onStagedTimecodeConsumed={() => setStagedMarker(null)}
                   />
+                  </ErrorBoundary>
                 ) : (
                   <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-muted)' }}>
                     <MessageCircle size={32} style={{ margin: '0 auto 12px', display: 'block', opacity: 0.25 }} />
@@ -764,7 +784,7 @@ const App: React.FC = () => {
               {activeRightTab === 'tools' && (
                 <div id="panel-tools" role="tabpanel" aria-labelledby="tab-tools">
                   {scanResult ? (
-                    <>
+                    <ErrorBoundary fallbackLabel="Tools panel crashed">
                       <TranscriptionPanel
                         result={transcription}
                         onTranscriptionDone={setTranscription}
@@ -783,7 +803,7 @@ const App: React.FC = () => {
                         currentTime={videoCurrentTime}
                         onContrastCheck={handleContrastCheck}
                       />
-                    </>
+                    </ErrorBoundary>
                   ) : (
                     <div style={{
                       textAlign: 'center',
@@ -946,4 +966,10 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+const AppWithProviders: React.FC = () => (
+  <ToastProvider>
+    <App />
+  </ToastProvider>
+);
+
+export default AppWithProviders;
