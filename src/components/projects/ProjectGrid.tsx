@@ -58,7 +58,8 @@ const ProjectListRow: React.FC<{ project: Project; onClick: () => void; onDelete
 
 export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCreate, onDelete }) => {
   const [showCreate, setShowCreate] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => (localStorage.getItem('projectViewMode') as ViewMode) || 'grid');
+  const setViewMode = (m: ViewMode) => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
 
   return (
     <>

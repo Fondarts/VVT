@@ -4,11 +4,13 @@ import type { ProjectFile } from '../../shared/types';
 
 interface Props {
   versions: ProjectFile[];
+  baseName: string;
   onSelect: (file: ProjectFile) => void;
   onReorder?: (fileId: string, newVersionNumber: number) => void;
+  onMoveToGroup?: (fileId: string, targetBaseName: string) => void;
 }
 
-export const VersionHistory: React.FC<Props> = ({ versions, onSelect, onReorder }) => {
+export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, onReorder, onMoveToGroup }) => {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   const handleDragStart = (e: React.DragEvent, file: ProjectFile, idx: number) => {
@@ -21,22 +23,59 @@ export const VersionHistory: React.FC<Props> = ({ versions, onSelect, onReorder 
     e.preventDefault();
     e.stopPropagation();
     setDragOverIdx(null);
-    try {
-      const data = JSON.parse(e.dataTransfer.getData('application/versionhistory'));
-      if (data.fileId && data.idx !== targetIdx && onReorder) {
-        // Assign a versionNumber that places it at the target position
-        // Versions are sorted descending, so idx 0 = highest version
-        const targetVersion = versions[targetIdx];
-        onReorder(data.fileId, targetVersion.versionNumber);
-      }
-    } catch { /* ignore — might be a file-to-group drop */ }
+
+    // Try internal reorder first
+    const internalData = e.dataTransfer.getData('application/versionhistory');
+    if (internalData) {
+      try {
+        const data = JSON.parse(internalData);
+        if (data.fileId && data.idx !== targetIdx && onReorder) {
+          const targetVersion = versions[targetIdx];
+          onReorder(data.fileId, targetVersion.versionNumber);
+        }
+        return;
+      } catch { /* fall through */ }
+    }
+
+    // Try external file drop (from FileGrid)
+    const externalData = e.dataTransfer.getData('text/plain');
+    if (externalData) {
+      try {
+        const data = JSON.parse(externalData);
+        if (data.fileId && data.baseName?.toLowerCase() !== baseName.toLowerCase()) {
+          onMoveToGroup?.(data.fileId, baseName);
+        }
+      } catch { /* ignore */ }
+    }
+  };
+
+  const [containerDragOver, setContainerDragOver] = useState(false);
+
+  const handleContainerDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setContainerDragOver(false);
+    const externalData = e.dataTransfer.getData('text/plain');
+    if (externalData) {
+      try {
+        const data = JSON.parse(externalData);
+        if (data.fileId && data.baseName?.toLowerCase() !== baseName.toLowerCase()) {
+          onMoveToGroup?.(data.fileId, baseName);
+        }
+      } catch { /* ignore */ }
+    }
   };
 
   return (
-    <div style={{
-      background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
-      borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px',
-    }}>
+    <div
+      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setContainerDragOver(true); }}
+      onDragLeave={() => setContainerDragOver(false)}
+      onDrop={handleContainerDrop}
+      style={{
+        background: 'var(--color-bg-primary)',
+        border: containerDragOver ? '2px dashed var(--color-accent)' : '1px solid var(--border-color)',
+        borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '4px',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
         <Clock size={12} style={{ color: 'var(--color-text-muted)' }} />
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>
@@ -63,7 +102,7 @@ export const VersionHistory: React.FC<Props> = ({ versions, onSelect, onReorder 
             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragOverIdx(idx); }}
             onDragLeave={() => setDragOverIdx(null)}
             onDrop={e => handleDrop(e, idx)}
-            onClick={() => onSelect(v)}
+            onDoubleClick={() => onSelect(v)}
             style={{
               display: 'flex', alignItems: 'center', gap: '8px',
               padding: '5px 8px', borderRadius: '4px', cursor: 'grab',

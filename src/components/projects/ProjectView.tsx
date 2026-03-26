@@ -24,7 +24,8 @@ export const ProjectView: React.FC<Props> = ({
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewModeState] = useState<'grid' | 'list'>(() => (localStorage.getItem('projectViewMode') as 'grid' | 'list') || 'grid');
+  const setViewMode = (m: 'grid' | 'list') => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
 
   // Read ALL entries from a directory (readEntries can return batches)
   const readAllEntries = useCallback(async (dirReader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => {

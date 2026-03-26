@@ -187,7 +187,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                   background: dropTarget === g.baseName ? 'rgba(225,255,28,0.08)' : 'rgba(255,255,255,0.01)',
                 }}
               >
-                <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} onReorder={onReorderVersion} />
+                <VersionHistory versions={g.versions} baseName={g.latest.baseName} onSelect={onFileDoubleClick} onReorder={onReorderVersion} onMoveToGroup={onMoveToVersion} />
               </div>
             )}
           </React.Fragment>
@@ -240,7 +240,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                   onDragLeave={() => setDropTarget(null)}
                   onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
                 >
-                  <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} onReorder={onReorderVersion} />
+                  <VersionHistory versions={g.versions} baseName={g.latest.baseName} onSelect={onFileDoubleClick} onReorder={onReorderVersion} onMoveToGroup={onMoveToVersion} />
                 </div>
               )}
             </React.Fragment>
