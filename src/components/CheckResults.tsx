@@ -23,7 +23,7 @@ const statusIcon = (status: 'pass' | 'warn' | 'fail') => {
   return <AlertCircle size={14} style={{ color: 'var(--color-error)', flexShrink: 0 }} />;
 };
 
-export const CheckResults: React.FC<CheckResultsProps> = React.memo(({ checks, noPreset, scanResult, presetName, headerExtra }) => {
+export const CheckResults = React.memo<CheckResultsProps>(({ checks, noPreset, scanResult, presetName, headerExtra }) => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['container', 'video', 'audio']);
 
   const toggle = (key: string) =>
