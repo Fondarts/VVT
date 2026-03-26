@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder, Trash2, Link } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
 import type { VersionGroup, ProjectFolder } from '../../shared/types';
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -13,19 +13,22 @@ interface FileProps {
   onDoubleClick: () => void;
   onExpandVersions?: () => void;
   onDelete?: () => void;
-  onLink?: () => void;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
 }
 
-export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVersions, onDelete, onLink }) => {
+export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVersions, onDelete, draggable, onDragStart }) => {
   const { latest, versions } = group;
   const hasVersions = versions.length > 1;
 
   return (
     <div
+      draggable={draggable}
+      onDragStart={onDragStart}
       onDoubleClick={onDoubleClick}
       style={{
         background: 'var(--color-bg-secondary)', border: '1px solid var(--border-color)',
-        borderRadius: '8px', padding: '12px', cursor: 'pointer',
+        borderRadius: '8px', padding: '12px', cursor: draggable ? 'grab' : 'pointer',
         transition: 'border-color 0.2s',
         display: 'flex', flexDirection: 'column', gap: '8px',
       }}
@@ -45,14 +48,6 @@ export const FileCard: React.FC<FileProps> = ({ group, onDoubleClick, onExpandVe
             {latest.versionTag.toUpperCase()}
           </span>
         )}
-        <button
-          className="btn btn-icon btn-sm"
-          onClick={e => { e.stopPropagation(); onLink?.(); }}
-          title="Link to version group"
-          style={{ color: 'var(--color-text-muted)', flexShrink: 0, padding: '2px' }}
-        >
-          <Link size={12} />
-        </button>
         <button
           className="btn btn-icon btn-sm"
           onClick={e => { e.stopPropagation(); onDelete?.(); }}

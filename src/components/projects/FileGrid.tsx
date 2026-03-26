@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder, Trash2, Link } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
@@ -23,9 +23,32 @@ interface Props {
 
 export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [linkingFileId, setLinkingFileId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null); // baseName of the group being hovered
 
   const isEmpty = folders.length === 0 && versionGroups.length === 0;
+
+  // Drag handlers for file rows
+  const handleDragStart = (e: React.DragEvent, fileId: string, baseName: string) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ fileId, baseName }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDropOnGroup = (e: React.DragEvent, targetBaseName: string) => {
+    e.preventDefault();
+    setDropTarget(null);
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data.fileId && data.baseName.toLowerCase() !== targetBaseName.toLowerCase()) {
+        onMoveToVersion?.(data.fileId, targetBaseName);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleDragOverGroup = (e: React.DragEvent, baseName: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget(baseName);
+  };
 
   if (isEmpty) {
     return (
@@ -93,15 +116,23 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
         {versionGroups.map(g => (
           <React.Fragment key={g.baseName}>
             <div
+              draggable
+              onDragStart={e => handleDragStart(e, g.latest.id, g.baseName)}
+              onDragOver={e => g.versions.length > 0 ? handleDragOverGroup(e, g.baseName) : undefined}
+              onDragLeave={() => setDropTarget(null)}
+              onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
               onDoubleClick={() => onFileDoubleClick(g.latest)}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
-                padding: '8px 16px', cursor: 'pointer',
+                padding: '8px 16px', cursor: 'grab',
                 borderBottom: '1px solid var(--border-color)',
                 transition: 'background 0.15s',
+                background: dropTarget === g.baseName ? 'rgba(225,255,28,0.1)' : 'transparent',
+                outline: dropTarget === g.baseName ? '2px dashed var(--color-accent)' : 'none',
+                outlineOffset: '-2px',
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              onMouseEnter={e => { if (!dropTarget) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+              onMouseLeave={e => { if (!dropTarget) e.currentTarget.style.background = 'transparent'; }}
             >
               {TYPE_ICON_SM[g.latest.type] || TYPE_ICON_SM.video}
               <span style={{ flex: 1, fontSize: '0.8125rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -137,14 +168,6 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
               </span>
               <button
                 className="btn btn-icon btn-sm"
-                onClick={e => { e.stopPropagation(); setLinkingFileId(linkingFileId === g.latest.id ? null : g.latest.id); }}
-                title="Link to version group"
-                style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
-              >
-                <Link size={13} />
-              </button>
-              <button
-                className="btn btn-icon btn-sm"
                 onClick={e => { e.stopPropagation(); onDeleteFile?.(g.latest); }}
                 title="Delete file"
                 style={{ color: 'var(--color-text-muted)', flexShrink: 0, width: '32px' }}
@@ -152,33 +175,17 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
                 <Trash2 size={13} />
               </button>
             </div>
-            {/* Link to version group picker */}
-            {linkingFileId === g.latest.id && (
-              <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(225,255,28,0.04)' }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Move to version group:</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).map(other => (
-                    <button
-                      key={other.baseName}
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: '0.7rem', padding: '3px 8px' }}
-                      onClick={e => {
-                        e.stopPropagation();
-                        onMoveToVersion?.(g.latest.id, other.latest.baseName);
-                        setLinkingFileId(null);
-                      }}
-                    >
-                      {other.latest.baseName}
-                    </button>
-                  ))}
-                  {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).length === 0 && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>No other groups available</span>
-                  )}
-                </div>
-              </div>
-            )}
             {expandedGroup === g.baseName && g.versions.length > 1 && (
-              <div style={{ padding: '8px 16px 8px 44px', borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.01)' }}>
+              <div
+                onDragOver={e => handleDragOverGroup(e, g.baseName)}
+                onDragLeave={() => setDropTarget(null)}
+                onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
+                style={{
+                  padding: '8px 16px 8px 44px',
+                  borderBottom: '1px solid var(--border-color)',
+                  background: dropTarget === g.baseName ? 'rgba(225,255,28,0.08)' : 'rgba(255,255,255,0.01)',
+                }}
+              >
                 <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
               </div>
             )}
@@ -203,36 +210,35 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
           {versionGroups.map(g => (
             <React.Fragment key={g.baseName}>
-              <FileCard
-                group={g}
-                onDoubleClick={() => onFileDoubleClick(g.latest)}
-                onExpandVersions={() => setExpandedGroup(expandedGroup === g.baseName ? null : g.baseName)}
-                onDelete={() => onDeleteFile?.(g.latest)}
-                onLink={() => setLinkingFileId(linkingFileId === g.latest.id ? null : g.latest.id)}
-              />
-              {/* Link to version group picker (grid mode) */}
-              {linkingFileId === g.latest.id && (
-                <div style={{ gridColumn: '1 / -1', background: 'rgba(225,255,28,0.04)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Move to version group:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).map(other => (
-                      <button
-                        key={other.baseName}
-                        className="btn btn-secondary btn-sm"
-                        style={{ fontSize: '0.7rem', padding: '3px 8px' }}
-                        onClick={() => { onMoveToVersion?.(g.latest.id, other.latest.baseName); setLinkingFileId(null); }}
-                      >
-                        {other.latest.baseName}
-                      </button>
-                    ))}
-                    {versionGroups.filter(other => other.baseName.toLowerCase() !== g.baseName.toLowerCase()).length === 0 && (
-                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>No other groups available</span>
-                    )}
-                  </div>
-                </div>
-              )}
+              <div
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget(g.baseName); }}
+                onDragLeave={() => setDropTarget(null)}
+                onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
+                style={{
+                  outline: dropTarget === g.baseName ? '2px dashed var(--color-accent)' : 'none',
+                  borderRadius: '8px',
+                }}
+              >
+                <FileCard
+                  group={g}
+                  draggable
+                  onDragStart={e => handleDragStart(e, g.latest.id, g.baseName)}
+                  onDoubleClick={() => onFileDoubleClick(g.latest)}
+                  onExpandVersions={() => setExpandedGroup(expandedGroup === g.baseName ? null : g.baseName)}
+                  onDelete={() => onDeleteFile?.(g.latest)}
+                />
+              </div>
               {expandedGroup === g.baseName && g.versions.length > 1 && (
-                <div style={{ gridColumn: '1 / -1' }}>
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    outline: dropTarget === g.baseName ? '2px dashed var(--color-accent)' : 'none',
+                    borderRadius: '8px',
+                  }}
+                  onDragOver={e => handleDragOverGroup(e, g.baseName)}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
+                >
                   <VersionHistory versions={g.versions} onSelect={onFileDoubleClick} />
                 </div>
               )}
