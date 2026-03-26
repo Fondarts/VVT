@@ -78,6 +78,46 @@ function formatBitrate(bps: number): string {
   return `${bps} bps`;
 }
 
+/** Extract creation date from FFmpeg probe output or file.lastModified */
+function extractCreationDate(probeOutput: string, file: File): string | undefined {
+  const match = probeOutput.match(/creation_time\s*:\s*(\S+)/);
+  if (match) {
+    try {
+      return new Date(match[1]).toLocaleString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { /* ignore */ }
+  }
+  return new Date(file.lastModified).toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+}
+
+/** Build FileMetadata from parsed info + file object */
+function buildFileMetadata(
+  file: File,
+  ext: string,
+  parsed: { container: string; containerFormatProfile?: string; duration: number; video: VideoMetadata | null },
+  creationDate?: string,
+): FileMetadata {
+  return {
+    name: file.name,
+    path: file.name,
+    extension: ext,
+    sizeBytes: file.size,
+    sizeFormatted: formatBytes(file.size),
+    duration: parsed.duration,
+    durationFormatted: formatDuration(parsed.duration),
+    container: parsed.container,
+    format: parsed.container,
+    mimeType: file.type || undefined,
+    width: parsed.video?.width,
+    height: parsed.video?.height,
+    creationDate,
+    formatProfile: parsed.containerFormatProfile,
+  };
+}
+
 /**
  * Map a pix_fmt string to chroma subsampling + bit depth.
  * Handles: yuv420p, yuv422p, yuv444p, yuv420p10le, etc.
@@ -559,21 +599,7 @@ export async function scanVideoFile(
     throw new Error('No video stream found in file');
   }
 
-  // ── Creation date ─────────────────────────────────────────────────
-  const creationTimeMatch = probeOutput.match(/creation_time\s*:\s*(\S+)/);
-  let creationDate: string | undefined;
-  if (creationTimeMatch) {
-    try {
-      creationDate = new Date(creationTimeMatch[1]).toLocaleString('en-US', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      });
-    } catch { /* ignore */ }
-  }
-  if (!creationDate) {
-    creationDate = new Date(file.lastModified).toLocaleString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric',
-    });
-  }
+  const creationDate = extractCreationDate(probeOutput, file);
 
   // ── Fast start (browser File API) ────────────────────────────────
   onProgress?.(40, 'Checking fast-start…');
@@ -592,22 +618,7 @@ export async function scanVideoFile(
   // Clean up virtual filesystem
   try { await ff.deleteFile(inputName); } catch { /* ignore */ }
 
-  const fileMetadata: FileMetadata = {
-    name: file.name,
-    path: file.name, // no real path in browser
-    extension: ext,
-    sizeBytes: file.size,
-    sizeFormatted: formatBytes(file.size),
-    duration,
-    durationFormatted: formatDuration(duration),
-    container,
-    format: container,
-    mimeType: file.type || undefined,
-    width: video.width,
-    height: video.height,
-    creationDate,
-    formatProfile: containerFormatProfile,
-  };
+  const fileMetadata = buildFileMetadata(file, ext, { container, containerFormatProfile, duration, video }, creationDate);
 
   onProgress?.(100, 'Done');
 
@@ -904,21 +915,7 @@ export async function runScan(
   const { container, containerFormatProfile, duration, video, audio: audioBase } = parseFFmpegInfo(probeOutput);
   if (!video) throw new Error('No video stream found in file');
 
-  // Creation date from metadata tag, fallback to file.lastModified
-  const creationTimeMatch = probeOutput.match(/creation_time\s*:\s*(\S+)/);
-  let creationDate: string | undefined;
-  if (creationTimeMatch) {
-    try {
-      creationDate = new Date(creationTimeMatch[1]).toLocaleString('en-US', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      });
-    } catch { /* ignore */ }
-  }
-  if (!creationDate) {
-    creationDate = new Date(file.lastModified).toLocaleString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric',
-    });
-  }
+  const creationDate = extractCreationDate(probeOutput, file);
 
   // ── 4. Fast start (pure JS — instant) ──────────────────────────────
   onProgress?.(25, 'Checking fast-start…');
@@ -927,22 +924,7 @@ export async function runScan(
   // ── 5. Fire onScanReady NOW (specs visible before loudness) ────────
   // Audio loudness comes later via onLoudnessReady.
   // lufs: -99 is the "not yet measured" sentinel shown in the UI.
-  const fileMetadata: FileMetadata = {
-    name: file.name,
-    path: file.name,
-    extension: ext,
-    sizeBytes: file.size,
-    sizeFormatted: formatBytes(file.size),
-    duration,
-    durationFormatted: formatDuration(duration),
-    container,
-    format: container,
-    mimeType: file.type || undefined,
-    width: video.width,
-    height: video.height,
-    creationDate,
-    formatProfile: containerFormatProfile,
-  };
+  const fileMetadata = buildFileMetadata(file, ext, { container, containerFormatProfile, duration, video }, creationDate);
 
   const initialScan: ScanResult = {
     file: fileMetadata,
@@ -1447,40 +1429,12 @@ export async function runScanOnSlot(
   const { container, containerFormatProfile, duration, video, audio: audioBase } = parseFFmpegInfo(probeOutput);
   if (!video) throw new Error('No video stream found in file');
 
-  const creationTimeMatch = probeOutput.match(/creation_time\s*:\s*(\S+)/);
-  let creationDate: string | undefined;
-  if (creationTimeMatch) {
-    try {
-      creationDate = new Date(creationTimeMatch[1]).toLocaleString('en-US', {
-        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      });
-    } catch { /* ignore */ }
-  }
-  if (!creationDate) {
-    creationDate = new Date(file.lastModified).toLocaleString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric',
-    });
-  }
+  const creationDate = extractCreationDate(probeOutput, file);
 
   onProgress?.(28, 'Checking fast-start…');
   const fastStart = await checkFastStart(file);
 
-  const fileMetadata: FileMetadata = {
-    name: file.name,
-    path: file.name,
-    extension: ext,
-    sizeBytes: file.size,
-    sizeFormatted: formatBytes(file.size),
-    duration,
-    durationFormatted: formatDuration(duration),
-    container,
-    format: container,
-    mimeType: file.type || undefined,
-    width: video.width,
-    height: video.height,
-    creationDate,
-    formatProfile: containerFormatProfile,
-  };
+  const fileMetadata = buildFileMetadata(file, ext, { container, containerFormatProfile, duration, video }, creationDate);
 
   const initialScan: ScanResult = {
     file: fileMetadata,
