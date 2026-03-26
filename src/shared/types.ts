@@ -352,8 +352,8 @@ export interface ProjectFile {
   scanResult: ScanResult | null;
   addedBy: string;
   addedAt: string;
-  /** Absolute path on disk (set by helper at drop time, used for direct access) */
-  localPath?: string;
+  /** Google Drive file ID (set at drop time via Drive API search) */
+  driveFileId?: string;
 }
 
 export interface VersionGroup {

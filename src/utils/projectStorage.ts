@@ -133,7 +133,7 @@ export function subscribeFiles(
         scanResult: data.scanResult ?? null,
         addedBy: data.addedBy,
         addedAt: (data.addedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
-        localPath: data.localPath ?? undefined,
+        driveFileId: data.driveFileId ?? undefined,
       };
     });
     callback(files);
@@ -152,7 +152,7 @@ export async function addProjectFile(
     extension: string;
     sizeBytes: number;
     scanResult: ScanResult | null;
-    localPath?: string;
+    driveFileId?: string;
   },
   userId: string,
 ): Promise<string> {

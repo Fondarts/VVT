@@ -66,7 +66,7 @@ interface VersionContext {
 
 const App: React.FC = () => {
   const { addToast } = useToast();
-  const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
+  const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
   const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('projects');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
@@ -413,6 +413,8 @@ const App: React.FC = () => {
         {mode === 'projects' && user && (
           <ProjectDashboard
             userId={user.uid}
+            driveToken={driveToken}
+            onRequestDriveAccess={requestDriveAccess}
             onFileOpen={(file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
               handleFileSelected(file);
               setVersionContext(ctx ?? null);

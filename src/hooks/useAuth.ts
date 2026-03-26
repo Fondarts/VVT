@@ -21,6 +21,9 @@ interface GisAccounts {
     renderButton: (el: HTMLElement, cfg: Record<string, unknown>) => void;
     revoke: (hint: string, cb?: () => void) => void;
   };
+  oauth2: {
+    initTokenClient: (cfg: Record<string, unknown>) => { requestAccessToken: () => void };
+  };
 }
 
 declare global {
@@ -29,12 +32,16 @@ declare global {
   }
 }
 
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+
 /* ── Hook ──────────────────────────────────────────────────────────── */
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [driveToken, setDriveToken] = useState<string | null>(null);
   const initialized = useRef(false);
+  const tokenClientRef = useRef<{ requestAccessToken: () => void } | null>(null);
 
   /* Firebase auth state listener */
   useEffect(() => {
@@ -65,6 +72,22 @@ export function useAuth() {
         client_id: GOOGLE_CLIENT_ID,
         callback: handleCredential,
       });
+
+      // Initialize OAuth2 token client for Drive API access
+      if (window.google.accounts.oauth2) {
+        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: DRIVE_SCOPE,
+          callback: (response: { access_token?: string; error?: string }) => {
+            if (response.access_token) {
+              setDriveToken(response.access_token);
+            } else {
+              console.warn('OAuth2 token request failed:', response.error);
+            }
+          },
+        });
+      }
+
       initialized.current = true;
       return true;
     }
@@ -114,14 +137,22 @@ export function useAuth() {
     });
   }, []);
 
+  /** Request Drive API access token (shows consent if first time) */
+  const requestDriveAccess = useCallback(() => {
+    if (tokenClientRef.current) {
+      tokenClientRef.current.requestAccessToken();
+    }
+  }, []);
+
   /* Sign out */
   const signOut = useCallback(async () => {
     if (user?.email && window.google?.accounts?.id) {
       window.google.accounts.id.revoke(user.email);
     }
     await fbSignOut(auth);
+    setDriveToken(null);
     setError(null);
   }, [user]);
 
-  return { user, loading, error, signIn, signOut };
+  return { user, loading, error, signIn, signOut, driveToken, requestDriveAccess };
 }

@@ -12,6 +12,7 @@ import {
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
 import { cacheFile, getCachedFile } from '../utils/fileCache';
+import { findDriveFile, downloadDriveFile } from '../utils/driveApi';
 
 // Global cache: files dropped in this session are kept in memory
 // so double-click can open them without re-picking
@@ -41,6 +42,7 @@ export interface UseProjectFilesReturn {
 export function useProjectFiles(
   projectId: string | null,
   parentPath: string,
+  driveToken?: string | null,
 ): UseProjectFilesReturn {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [folders, setFolders] = useState<ProjectFolder[]>([]);
@@ -88,10 +90,18 @@ export function useProjectFiles(
       const { baseName, versionTag, versionNumber } = parseVersion(file.name);
       const type = detectFileType(file.name);
 
-      // Cache in memory (instant access this session)
+      // Cache in memory + OPFS
       fileCache.set(cacheKey(file.name, file.size), file);
-      // Cache in OPFS (persists across sessions)
       cacheFile(file).catch(() => {});
+
+      // Try to find the Drive file ID for cross-team access
+      let driveFileId: string | undefined;
+      if (driveToken) {
+        try {
+          const driveFile = await findDriveFile(driveToken, file.name);
+          if (driveFile) driveFileId = driveFile.id;
+        } catch { /* ignore */ }
+      }
 
       await addProjectFile(projId, path, {
         name: file.name,
@@ -102,6 +112,7 @@ export function useProjectFiles(
         extension: ext,
         sizeBytes: file.size,
         scanResult: null,
+        driveFileId,
       }, userId);
     }
   }, []);
@@ -143,14 +154,26 @@ export function useProjectFiles(
     // 1. Memory cache (instant)
     const cached = fileCache.get(cacheKey(pf.name, pf.sizeBytes));
     if (cached) return cached;
-    // 2. OPFS persistent cache (survives refresh)
+    // 2. OPFS persistent cache (survives refresh, same machine)
     const opfs = await getCachedFile(pf.name, pf.sizeBytes);
     if (opfs) {
-      fileCache.set(cacheKey(pf.name, pf.sizeBytes), opfs); // promote to memory
+      fileCache.set(cacheKey(pf.name, pf.sizeBytes), opfs);
       return opfs;
     }
+    // 3. Google Drive API (works cross-team if driveFileId saved)
+    if (driveToken && pf.driveFileId) {
+      try {
+        const blob = await downloadDriveFile(driveToken, pf.driveFileId);
+        const file = new File([blob], pf.name, { type: blob.type });
+        fileCache.set(cacheKey(pf.name, pf.sizeBytes), file);
+        cacheFile(file).catch(() => {}); // cache in OPFS for next time
+        return file;
+      } catch (e) {
+        console.warn('[resolveLocalFile] Drive download failed:', e);
+      }
+    }
     return null;
-  }, []);
+  }, [driveToken]);
 
   const reorderVersion = useCallback(async (fileId: string, newVersionNumber: number) => {
     await updateFileVersionNumber(fileId, newVersionNumber);

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
+import { FolderPlus, Upload, Loader2, LayoutGrid, List, CloudOff, Cloud } from 'lucide-react';
 import { useToast } from '../Toast';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
@@ -13,17 +13,19 @@ interface Props {
   path: string;
   breadcrumbs: { label: string; path: string | null }[];
   userId: string;
+  driveToken?: string | null;
+  onRequestDriveAccess?: () => void;
   onNavigate: (path: string) => void;
   onGoToDashboard: () => void;
   onFileOpen: (file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => void;
 }
 
 export const ProjectView: React.FC<Props> = ({
-  projectId, projectName, path, breadcrumbs, userId,
+  projectId, projectName, path, breadcrumbs, userId, driveToken, onRequestDriveAccess,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
   const { addToast } = useToast();
-  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path);
+  const { folders, versionGroups, loading, addFiles, createFolder, removeFile, removeFolder, moveToVersionGroup, reorderVersion, getLocalFile, resolveLocalFile } = useProjectFiles(projectId, path, driveToken);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -130,6 +132,17 @@ export const ProjectView: React.FC<Props> = ({
               <List size={14} />
             </button>
           </div>
+          {onRequestDriveAccess && (
+            <button
+              className={`btn btn-sm ${driveToken ? 'btn-secondary' : 'btn-primary'}`}
+              onClick={driveToken ? undefined : onRequestDriveAccess}
+              title={driveToken ? 'Google Drive connected — files accessible cross-team' : 'Connect Google Drive for cross-team file access'}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', cursor: driveToken ? 'default' : 'pointer' }}
+            >
+              {driveToken ? <Cloud size={13} /> : <CloudOff size={13} />}
+              <span style={{ fontSize: '0.75rem' }}>{driveToken ? 'Drive API' : 'Connect Drive API'}</span>
+            </button>
+          )}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
             <FolderPlus size={14} /> New Folder
           </button>
