@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Loader2, LayoutGrid, List, Folder, Trash2, Calendar } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Plus, Loader2, LayoutGrid, List, Folder, Trash2, Calendar, User, Pencil } from 'lucide-react';
 import type { Project } from '../../shared/types';
 import { ProjectCard } from './ProjectCard';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -12,9 +12,30 @@ interface Props {
   onOpen: (projectId: string) => void;
   onCreate: (name: string) => void;
   onDelete: (projectId: string) => void;
+  onRename: (projectId: string, newName: string) => void;
 }
 
-const ProjectListRow: React.FC<{ project: Project; onClick: () => void; onDelete: () => void }> = ({ project, onClick, onDelete }) => {
+const ProjectListRow: React.FC<{
+  project: Project;
+  onClick: () => void;
+  onDelete: () => void;
+  onRename: (newName: string) => void;
+}> = ({ project, onClick, onDelete, onRename }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(project.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  const commitRename = () => {
+    const trimmed = draft.trim();
+    setEditing(false);
+    if (trimmed && trimmed !== project.name) onRename(trimmed);
+    else setDraft(project.name);
+  };
+
   const createdStr = project.createdAt
     ? new Date(project.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : '';
@@ -24,10 +45,10 @@ const ProjectListRow: React.FC<{ project: Project; onClick: () => void; onDelete
 
   return (
     <div
-      onClick={onClick}
+      onClick={editing ? undefined : onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: '12px',
-        padding: '10px 16px', cursor: 'pointer',
+        padding: '10px 16px', cursor: editing ? 'default' : 'pointer',
         borderBottom: '1px solid var(--border-color)',
         transition: 'background 0.15s',
       }}
@@ -35,8 +56,36 @@ const ProjectListRow: React.FC<{ project: Project; onClick: () => void; onDelete
       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
     >
       <Folder size={18} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />
-      <span style={{ fontWeight: 600, fontSize: '0.85rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {project.name}
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setDraft(project.name); setEditing(false); } }}
+          onClick={e => e.stopPropagation()}
+          style={{
+            flex: 1, fontWeight: 600, fontSize: '0.85rem',
+            background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-accent)',
+            borderRadius: '4px', padding: '2px 6px', color: 'var(--color-text-primary)',
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <span style={{ fontWeight: 600, fontSize: '0.85rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {project.name}
+        </span>
+      )}
+      <button
+        className="btn btn-icon btn-sm"
+        onClick={e => { e.stopPropagation(); setDraft(project.name); setEditing(true); }}
+        title="Rename"
+        style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+      >
+        <Pencil size={12} />
+      </button>
+      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', minWidth: '100px' }}>
+        <User size={11} /> {project.createdByName || '—'}
       </span>
       <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px', minWidth: '120px' }}>
         <Calendar size={11} /> {createdStr}
@@ -56,7 +105,7 @@ const ProjectListRow: React.FC<{ project: Project; onClick: () => void; onDelete
   );
 };
 
-export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCreate, onDelete }) => {
+export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCreate, onDelete, onRename }) => {
   const [showCreate, setShowCreate] = useState(false);
   const [viewMode, setViewModeState] = useState<ViewMode>(() => (localStorage.getItem('projectViewMode') as ViewMode) || 'grid');
   const setViewMode = (m: ViewMode) => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
@@ -127,6 +176,7 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
               onDelete={() => {
                 if (window.confirm(`Delete project "${p.name}"?`)) onDelete(p.id);
               }}
+              onRename={(newName) => onRename(p.id, newName)}
             />
           ))}
         </div>
@@ -144,6 +194,8 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
           }}>
             <span style={{ width: '18px', flexShrink: 0 }} />
             <span style={{ flex: 1 }}>Name</span>
+            <span style={{ width: '32px', flexShrink: 0 }} /> {/* rename btn */}
+            <span style={{ minWidth: '100px', flexShrink: 0 }}>Creator</span>
             <span style={{ minWidth: '120px', flexShrink: 0 }}>Created</span>
             <span style={{ minWidth: '160px', flexShrink: 0 }}>Last Updated</span>
             <span style={{ width: '32px', flexShrink: 0 }} />
@@ -156,6 +208,7 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
               onDelete={() => {
                 if (window.confirm(`Delete project "${p.name}"?`)) onDelete(p.id);
               }}
+              onRename={(newName) => onRename(p.id, newName)}
             />
           ))}
         </div>

@@ -28,6 +28,7 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
         id: d.id,
         name: data.name,
         createdBy: data.createdBy,
+        createdByName: data.createdByName ?? '',
         createdAt: (data.createdAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
         updatedAt: (data.updatedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
       };
@@ -36,14 +37,19 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
   });
 }
 
-export async function createProject(name: string, userId: string): Promise<string> {
+export async function createProject(name: string, userId: string, userName?: string): Promise<string> {
   const ref = await addDoc(collection(db, PROJECTS), {
     name,
     createdBy: userId,
+    createdByName: userName ?? '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+export async function renameProject(projectId: string, newName: string): Promise<void> {
+  await updateDoc(doc(db, PROJECTS, projectId), { name: newName, updatedAt: serverTimestamp() });
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
@@ -77,6 +83,7 @@ export function subscribeFolders(
         path: data.path,
         name: data.name,
         parentPath: data.parentPath,
+        createdAt: (data.createdAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
       };
     });
     callback(folders.sort((a, b) => a.name.localeCompare(b.name)));
@@ -132,8 +139,13 @@ export function subscribeFiles(
         sizeBytes: data.sizeBytes,
         scanResult: data.scanResult ?? null,
         addedBy: data.addedBy,
+        addedByName: data.addedByName ?? '',
         addedAt: (data.addedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
         driveFileId: data.driveFileId ?? undefined,
+        driveCreatedTime: data.driveCreatedTime ?? undefined,
+        driveWidth: data.driveWidth ?? undefined,
+        driveHeight: data.driveHeight ?? undefined,
+        driveDurationMs: data.driveDurationMs ?? undefined,
       };
     });
     callback(files);
@@ -153,11 +165,16 @@ export async function addProjectFile(
     sizeBytes: number;
     scanResult: ScanResult | null;
     driveFileId?: string;
+    driveCreatedTime?: string;
+    driveWidth?: number;
+    driveHeight?: number;
+    driveDurationMs?: number;
   },
   userId: string,
+  userName?: string,
 ): Promise<string> {
   // Filter out undefined values — Firestore rejects them
-  const data: Record<string, unknown> = { projectId, parentPath, ...fileData, addedBy: userId, addedAt: serverTimestamp() };
+  const data: Record<string, unknown> = { projectId, parentPath, ...fileData, addedBy: userId, addedByName: userName ?? '', addedAt: serverTimestamp() };
   for (const key of Object.keys(data)) { if (data[key] === undefined) delete data[key]; }
   const ref = await addDoc(collection(db, FILES), data);
   await touchProject(projectId);

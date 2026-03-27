@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { FolderPlus, Upload, Loader2, LayoutGrid, List } from 'lucide-react';
+import { FolderPlus, Upload, Loader2, LayoutGrid, List, ArrowUpDown } from 'lucide-react';
 import { useToast } from '../Toast';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectFiles } from '../../hooks/useProjectFiles';
@@ -13,6 +13,7 @@ interface Props {
   path: string;
   breadcrumbs: { label: string; path: string | null }[];
   userId: string;
+  userName?: string;
   driveToken?: string | null;
   onNavigate: (path: string) => void;
   onGoToDashboard: () => void;
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export const ProjectView: React.FC<Props> = ({
-  projectId, projectName, path, breadcrumbs, userId, driveToken,
+  projectId, projectName, path, breadcrumbs, userId, userName, driveToken,
   onNavigate, onGoToDashboard, onFileOpen,
 }) => {
   const { addToast } = useToast();
@@ -30,6 +31,15 @@ export const ProjectView: React.FC<Props> = ({
   const [adding, setAdding] = useState(false);
   const [viewMode, setViewModeState] = useState<'grid' | 'list'>(() => (localStorage.getItem('projectViewMode') as 'grid' | 'list') || 'grid');
   const setViewMode = (m: 'grid' | 'list') => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
+
+  type SortMode = 'name' | 'date-asc' | 'date-desc';
+  const [sortMode, setSortModeState] = useState<SortMode>(() => (localStorage.getItem('projectSortMode') as SortMode) || 'name');
+  const cycleSortMode = () => {
+    const next: SortMode = sortMode === 'name' ? 'date-desc' : sortMode === 'date-desc' ? 'date-asc' : 'name';
+    setSortModeState(next);
+    localStorage.setItem('projectSortMode', next);
+  };
+  const sortLabel = sortMode === 'name' ? 'A-Z' : sortMode === 'date-desc' ? 'Newest' : 'Oldest';
 
   // Read ALL entries from a directory (readEntries can return batches)
   const readAllEntries = useCallback(async (dirReader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => {
@@ -48,7 +58,7 @@ export const ProjectView: React.FC<Props> = ({
     for (const child of children) {
       if (child.isFile) {
         const file = await new Promise<File>((res, rej) => (child as FileSystemFileEntry).file(res, rej));
-        await addFiles([file], projectId, parentPath, userId);
+        await addFiles([file], projectId, parentPath, userId, userName);
       } else if (child.isDirectory) {
         const subPath = parentPath === '/' ? `/${child.name}` : `${parentPath}/${child.name}`;
         await createFolder(projectId, parentPath, child.name, userId);
@@ -78,7 +88,7 @@ export const ProjectView: React.FC<Props> = ({
             await processDirectory(entry as FileSystemDirectoryEntry, folderPath);
           } else {
             const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
-            await addFiles([file], projectId, path, userId);
+            await addFiles([file], projectId, path, userId, userName);
           }
         }
       } else {
@@ -87,7 +97,7 @@ export const ProjectView: React.FC<Props> = ({
         for (let i = 0; i < e.dataTransfer.files.length; i++) {
           files.push(e.dataTransfer.files[i]);
         }
-        if (files.length > 0) await addFiles(files, projectId, path, userId);
+        if (files.length > 0) await addFiles(files, projectId, path, userId, userName);
       }
     } finally {
       setAdding(false);
@@ -131,6 +141,14 @@ export const ProjectView: React.FC<Props> = ({
               <List size={14} />
             </button>
           </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={cycleSortMode}
+            title={`Sort: ${sortLabel}`}
+            style={{ minWidth: '80px', justifyContent: 'center' }}
+          >
+            <ArrowUpDown size={14} /> {sortLabel}
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowCreateFolder(true)}>
             <FolderPlus size={14} /> New Folder
           </button>
@@ -160,6 +178,7 @@ export const ProjectView: React.FC<Props> = ({
             folders={folders}
             versionGroups={versionGroups}
             viewMode={viewMode}
+            sortMode={sortMode}
             onFolderClick={onNavigate}
             onDeleteFolder={(folder) => {
               if (window.confirm(`Delete folder "${folder.name}" and all its contents?`)) {

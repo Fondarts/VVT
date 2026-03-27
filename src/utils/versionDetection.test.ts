@@ -116,6 +116,7 @@ describe('groupByVersion', () => {
     sizeBytes: 1000,
     scanResult: null,
     addedBy: 'u1',
+    addedByName: 'Test User',
     addedAt: '2024-01-01',
   });
 

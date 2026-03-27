@@ -14,13 +14,14 @@ interface VersionContext {
 
 interface Props {
   userId: string;
+  userName?: string;
   driveToken?: string | null;
   onFileOpen: (source: File | string, ctx?: VersionContext) => void;
 }
 
-export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onFileOpen }) => {
+export const ProjectDashboard: React.FC<Props> = ({ userId, userName, driveToken, onFileOpen }) => {
   const { nav, goToDashboard, goToProject, goToFolder, breadcrumbs } = useProjectNav();
-  const { projects, loading, createProject, deleteProject } = useProjects();
+  const { projects, loading, createProject, deleteProject, renameProject } = useProjects();
 
   const currentProject = nav.view === 'project'
     ? projects.find(p => p.id === nav.projectId)
@@ -35,10 +36,11 @@ export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onFileOp
             loading={loading}
             onOpen={goToProject}
             onCreate={async (name) => {
-              const id = await createProject(name, userId);
+              const id = await createProject(name, userId, userName);
               goToProject(id);
             }}
             onDelete={deleteProject}
+            onRename={renameProject}
           />
         )}
 
@@ -49,6 +51,7 @@ export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onFileOp
             path={nav.path}
             breadcrumbs={breadcrumbs}
             userId={userId}
+            userName={userName}
             driveToken={driveToken}
             onNavigate={goToFolder}
             onGoToDashboard={goToDashboard}

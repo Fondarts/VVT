@@ -16,7 +16,7 @@ export const ProjectBreadcrumb: React.FC<Props> = ({ crumbs, projectName, onNavi
     }}>
       {crumbs.map((crumb, i) => {
         const isLast = i === crumbs.length - 1;
-        const label = i === 0 ? crumb.label : (i === 1 && projectName ? projectName : crumb.label);
+        const label = crumb.label === '__PROJECT__' && projectName ? projectName : crumb.label;
 
         return (
           <React.Fragment key={i}>

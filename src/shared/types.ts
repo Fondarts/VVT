@@ -326,6 +326,7 @@ export interface Project {
   id: string;
   name: string;
   createdBy: string;
+  createdByName: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -336,6 +337,7 @@ export interface ProjectFolder {
   path: string;
   name: string;
   parentPath: string;
+  createdAt: string;
 }
 
 export interface ProjectFile {
@@ -351,9 +353,15 @@ export interface ProjectFile {
   sizeBytes: number;
   scanResult: ScanResult | null;
   addedBy: string;
+  addedByName: string;
   addedAt: string;
   /** Google Drive file ID (set at drop time via Drive API search) */
   driveFileId?: string;
+  /** Metadata from Google Drive */
+  driveCreatedTime?: string;
+  driveWidth?: number;
+  driveHeight?: number;
+  driveDurationMs?: number;
 }
 
 export interface VersionGroup {

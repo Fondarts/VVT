@@ -755,6 +755,49 @@ const server = http.createServer(async (req, res) => {
     } catch (err) { return json(res, { error: err.message }, 500); }
   }
 
+  // POST /reveal-drive-file — reveal a Google Drive file in the local Drive folder
+  if (url.pathname === '/reveal-drive-file' && req.method === 'POST') {
+    try {
+      const { driveFileId, fileName } = JSON.parse((await readBody(req)).toString());
+      if (!driveFileId || !fileName) return json(res, { error: 'driveFileId and fileName required' }, 400);
+
+      // Google Drive for Desktop exposes files by ID via a virtual path
+      // Windows: <DriveLetter>:\.shortcut-targets-by-id\<fileId>\<fileName>
+      // macOS:   ~/Library/CloudStorage/GoogleDrive-<email>/My Drive/.shortcut-targets-by-id/<fileId>/<fileName>
+      let filePath = null;
+
+      if (process.platform === 'win32') {
+        for (const letter of 'GHIJKLMNOPQRSTUVWXYZABCDEF'.split('')) {
+          const candidate = `${letter}:\\.shortcut-targets-by-id\\${driveFileId}\\${fileName}`;
+          if (fs.existsSync(candidate)) { filePath = candidate; break; }
+        }
+      } else if (process.platform === 'darwin') {
+        const home = os.homedir();
+        const csDir = path.join(home, 'Library', 'CloudStorage');
+        if (fs.existsSync(csDir)) {
+          const accounts = fs.readdirSync(csDir).filter(d => d.startsWith('GoogleDrive-'));
+          for (const acct of accounts) {
+            const candidate = path.join(csDir, acct, 'My Drive', '.shortcut-targets-by-id', driveFileId, fileName);
+            if (fs.existsSync(candidate)) { filePath = candidate; break; }
+          }
+        }
+        if (!filePath) {
+          const candidate = path.join(home, 'Google Drive', 'My Drive', '.shortcut-targets-by-id', driveFileId, fileName);
+          if (fs.existsSync(candidate)) filePath = candidate;
+        }
+      }
+
+      if (!filePath) return json(res, { error: 'File not found on local Drive' }, 404);
+
+      if (process.platform === 'win32') {
+        exec(`explorer /select,"${filePath}"`);
+      } else if (process.platform === 'darwin') {
+        exec(`open -R "${filePath}"`);
+      }
+      return json(res, { ok: true, filePath });
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
   // GET /export/status
   if (url.pathname === '/export/status' && req.method === 'GET') {
     if (!currentJob) return json(res, { active: false });

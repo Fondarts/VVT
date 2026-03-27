@@ -27,7 +27,7 @@ export interface UseProjectFilesReturn {
   folders: ProjectFolder[];
   versionGroups: VersionGroup[];
   loading: boolean;
-  addFiles: (files: File[], projectId: string, parentPath: string, userId: string) => Promise<void>;
+  addFiles: (files: File[], projectId: string, parentPath: string, userId: string, userName?: string) => Promise<void>;
   createFolder: (projectId: string, parentPath: string, name: string, userId: string) => Promise<void>;
   removeFile: (fileId: string) => Promise<void>;
   removeFolder: (projectId: string, folderPath: string, folderId: string) => Promise<void>;
@@ -83,6 +83,7 @@ export function useProjectFiles(
     projId: string,
     path: string,
     userId: string,
+    userName?: string,
   ) => {
     for (const file of droppedFiles) {
       if (!isSupportedMedia(file.name)) continue; // skip .ini, .ds_store, etc.
@@ -94,12 +95,24 @@ export function useProjectFiles(
       fileCache.set(cacheKey(file.name, file.size), file);
       cacheFile(file).catch(() => {});
 
-      // Try to find the Drive file ID for cross-team access
+      // Try to find Drive metadata (owner, dates, dimensions, duration)
       let driveFileId: string | undefined;
+      let ownerName: string | undefined;
+      let driveCreatedTime: string | undefined;
+      let driveWidth: number | undefined;
+      let driveHeight: number | undefined;
+      let driveDurationMs: number | undefined;
       if (driveToken) {
         try {
           const driveFile = await findDriveFile(driveToken, file.name);
-          if (driveFile) driveFileId = driveFile.id;
+          if (driveFile) {
+            driveFileId = driveFile.id;
+            ownerName = driveFile.ownerName;
+            driveCreatedTime = driveFile.createdTime;
+            driveWidth = driveFile.width;
+            driveHeight = driveFile.height;
+            driveDurationMs = driveFile.durationMs;
+          }
         } catch { /* ignore */ }
       }
 
@@ -113,7 +126,11 @@ export function useProjectFiles(
         sizeBytes: file.size,
         scanResult: null,
         driveFileId,
-      }, userId);
+        driveCreatedTime,
+        driveWidth,
+        driveHeight,
+        driveDurationMs,
+      }, userId, ownerName || userName);
     }
   }, []);
 

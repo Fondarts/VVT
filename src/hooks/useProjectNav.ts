@@ -34,7 +34,10 @@ export function useProjectNav(): UseProjectNavReturn {
       { label: 'Projects', path: 'dashboard' },
     ];
 
+    // Add project root as a breadcrumb (clickable when inside a subfolder)
     const parts = nav.path.split('/').filter(Boolean);
+    crumbs.push({ label: '__PROJECT__', path: parts.length > 0 ? '/' : null });
+
     let accumulated = '/';
     for (const part of parts) {
       accumulated = accumulated === '/' ? `/${part}` : `${accumulated}/${part}`;
@@ -42,9 +45,7 @@ export function useProjectNav(): UseProjectNavReturn {
     }
 
     // Last breadcrumb is current location — not clickable
-    if (crumbs.length > 1) {
-      crumbs[crumbs.length - 1].path = null;
-    }
+    crumbs[crumbs.length - 1].path = null;
 
     return crumbs;
   }, [nav]);

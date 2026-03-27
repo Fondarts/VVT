@@ -419,6 +419,7 @@ const App: React.FC = () => {
         {mode === 'projects' && user && (
           <ProjectDashboard
             userId={user.uid}
+            userName={user.displayName ?? undefined}
             driveToken={driveToken}
             onFileOpen={(source: File | string, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
               if (typeof source === 'string') {

@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
+import { FileContextMenu, useFileContextMenu } from './FileContextMenu';
 
 const TYPE_ICON_SM: Record<string, React.ReactNode> = {
   video: <FileVideo size={14} style={{ color: '#FA4900' }} />,
   image: <ImageIcon size={14} style={{ color: '#34C759' }} />,
   audio: <Music size={14} style={{ color: '#0A84FF' }} />,
 };
+
+type SortMode = 'name' | 'date-asc' | 'date-desc';
 
 interface Props {
   folders: ProjectFolder[];
@@ -20,13 +23,29 @@ interface Props {
   onDeleteFile?: (file: ProjectFile) => void;
   onMoveToVersion?: (fileId: string, targetBaseName: string) => void;
   onReorderVersion?: (fileId: string, newVersionNumber: number) => void;
+  sortMode?: SortMode;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion, onReorderVersion }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion, onReorderVersion, sortMode = 'name' }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null); // baseName of the group being hovered
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const { menu, onContextMenu, closeMenu } = useFileContextMenu();
 
-  const isEmpty = folders.length === 0 && versionGroups.length === 0;
+  const sortedFolders = useMemo(() => {
+    const arr = [...folders];
+    if (sortMode === 'date-desc') return arr.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    if (sortMode === 'date-asc') return arr.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    return arr.sort((a, b) => a.name.localeCompare(b.name));
+  }, [folders, sortMode]);
+
+  const sortedGroups = useMemo(() => {
+    const arr = [...versionGroups];
+    if (sortMode === 'date-desc') return arr.sort((a, b) => (b.latest.addedAt || '').localeCompare(a.latest.addedAt || ''));
+    if (sortMode === 'date-asc') return arr.sort((a, b) => (a.latest.addedAt || '').localeCompare(b.latest.addedAt || ''));
+    return arr.sort((a, b) => a.baseName.localeCompare(b.baseName));
+  }, [versionGroups, sortMode]);
+
+  const isEmpty = sortedFolders.length === 0 && sortedGroups.length === 0;
 
   // Drag handlers for file rows
   const handleDragStart = (e: React.DragEvent, fileId: string, baseName: string) => {
@@ -52,12 +71,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
   };
 
   if (isEmpty) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-muted)' }}>
-        <p style={{ fontSize: '0.875rem' }}>This folder is empty</p>
-        <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>Drag files here or create a subfolder</p>
-      </div>
-    );
+    return null;
   }
 
   if (viewMode === 'list') {
@@ -82,7 +96,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
         </div>
 
         {/* Folders */}
-        {folders.map(f => (
+        {sortedFolders.map(f => (
           <div
             key={f.id}
             onClick={() => onFolderClick(f.path)}
@@ -114,7 +128,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
         ))}
 
         {/* Files */}
-        {versionGroups.map(g => (
+        {sortedGroups.map(g => (
           <React.Fragment key={g.baseName}>
             <div
               draggable
@@ -123,6 +137,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
               onDragLeave={() => setDropTarget(null)}
               onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
               onDoubleClick={() => onFileDoubleClick(g.latest)}
+              onContextMenu={e => onContextMenu(e, g.latest)}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px',
                 padding: '8px 16px', cursor: 'grab',
@@ -192,6 +207,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
             )}
           </React.Fragment>
         ))}
+        {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} />}
       </div>
     );
   }
@@ -199,22 +215,23 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
   // Grid mode
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {folders.length > 0 && (
+      {sortedFolders.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
-          {folders.map(f => (
+          {sortedFolders.map(f => (
             <FolderCard key={f.id} folder={f} onClick={() => onFolderClick(f.path)} onDelete={() => onDeleteFolder?.(f)} />
           ))}
         </div>
       )}
 
-      {versionGroups.length > 0 && (
+      {sortedGroups.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
-          {versionGroups.map(g => (
+          {sortedGroups.map(g => (
             <React.Fragment key={g.baseName}>
               <div
                 onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget(g.baseName); }}
                 onDragLeave={() => setDropTarget(null)}
                 onDrop={e => handleDropOnGroup(e, g.latest.baseName)}
+                onContextMenu={e => onContextMenu(e, g.latest)}
                 style={{
                   outline: dropTarget === g.baseName ? '2px dashed var(--color-accent)' : 'none',
                   borderRadius: '8px',
@@ -247,6 +264,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
           ))}
         </div>
       )}
+      {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} />}
     </div>
   );
 };

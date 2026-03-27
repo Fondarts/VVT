@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Clock, GripVertical } from 'lucide-react';
 import type { ProjectFile } from '../../shared/types';
+import { FileContextMenu, useFileContextMenu } from './FileContextMenu';
 
 interface Props {
   versions: ProjectFile[];
@@ -12,6 +13,7 @@ interface Props {
 
 export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, onReorder, onMoveToGroup }) => {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const { menu, onContextMenu, closeMenu } = useFileContextMenu();
 
   const handleDragStart = (e: React.DragEvent, file: ProjectFile, idx: number) => {
     e.stopPropagation();
@@ -81,16 +83,23 @@ export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, 
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', flex: 1 }}>
           Version History
         </span>
-        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '100px' }}>Imported</span>
-        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '80px' }}>By</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '65px' }}>Duration</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '80px' }}>Resolution</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '100px' }}>Uploaded</span>
+        <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '100px' }}>By</span>
         <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', minWidth: '60px', textAlign: 'right' }}>Size</span>
       </div>
       {versions.map((v, idx) => {
-        const dateStr = v.addedAt
-          ? new Date(v.addedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : '';
-        const author = v.addedBy
-          ? (v.addedBy.length > 12 ? v.addedBy.slice(0, 12) + '…' : v.addedBy)
+        const uploadDate = v.driveCreatedTime
+          ? new Date(v.driveCreatedTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : v.addedAt
+            ? new Date(v.addedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : '';
+        const authorRaw = v.addedByName || '';
+        const author = authorRaw.length > 18 ? authorRaw.slice(0, 18) + '…' : authorRaw;
+        const resolution = v.driveWidth && v.driveHeight ? `${v.driveWidth}×${v.driveHeight}` : '';
+        const duration = v.driveDurationMs
+          ? (() => { const s = Math.round(v.driveDurationMs! / 1000); const m = Math.floor(s / 60); return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; })()
           : '';
         const isLatest = idx === 0;
 
@@ -103,6 +112,7 @@ export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, 
             onDragLeave={() => setDragOverIdx(null)}
             onDrop={e => handleDrop(e, idx)}
             onDoubleClick={() => onSelect(v)}
+            onContextMenu={e => onContextMenu(e, v)}
             style={{
               display: 'flex', alignItems: 'center', gap: '8px',
               padding: '5px 8px', borderRadius: '4px', cursor: 'grab',
@@ -121,10 +131,16 @@ export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, 
             <span style={{ fontSize: '0.78rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {v.name}
             </span>
-            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '100px' }}>
-              {dateStr}
+            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '65px' }}>
+              {duration}
             </span>
-            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '80px' }}>
+              {resolution}
+            </span>
+            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '100px' }}>
+              {uploadDate}
+            </span>
+            <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {author}
             </span>
             <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', flexShrink: 0, minWidth: '60px', textAlign: 'right' }}>
@@ -133,6 +149,7 @@ export const VersionHistory: React.FC<Props> = ({ versions, baseName, onSelect, 
           </div>
         );
       })}
+      {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} />}
     </div>
   );
 };
