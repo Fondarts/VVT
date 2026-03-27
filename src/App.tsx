@@ -60,7 +60,7 @@ import { ProjectSidebar } from './components/projects/ProjectSidebar';
 import { useProjects } from './hooks/useProjects';
 import { getDriveStreamUrl, downloadDriveFile } from './utils/driveApi';
 import { getCachedFile } from './utils/fileCache';
-import { fetchFiles } from './utils/projectStorage';
+import { fetchFiles, fetchFileById } from './utils/projectStorage';
 import { groupByVersion } from './utils/versionDetection';
 import type { ProjectFile } from './shared/types';
 
@@ -70,11 +70,28 @@ interface VersionContext {
   getLocalFile: (pf: ProjectFile) => File | null;
 }
 
+export type ViewMode = 'full' | 'internal' | 'presentation';
+
 const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
   const { projects: sidebarProjects } = useProjects();
-  const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('projects');
+  // Detect share link params ONCE at init
+  const [shareParams] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fileId = params.get('file');
+    const view = params.get('view');
+    if (fileId) return { fileId, view: (view === 'internal' || view === 'presentation') ? view : 'internal' as const };
+    return null;
+  });
+  const isShareLink = !!shareParams;
+  const [shareLoading, setShareLoading] = useState(isShareLink);
+  const [mode, setMode] = useState<'single' | 'batch' | 'projects'>(isShareLink ? 'single' : 'projects');
+  const [viewMode] = useState<ViewMode>(() => {
+    if (shareParams) return shareParams.view as ViewMode;
+    return 'full';
+  });
+  const isPresentation = viewMode === 'presentation';
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -170,6 +187,26 @@ const App: React.FC = () => {
       if (transcodedVideoSrcRef.current) URL.revokeObjectURL(transcodedVideoSrcRef.current);
     };
   }, []);
+
+  // Auto-open file from share URL params
+  const shareHandled = useRef(false);
+  useEffect(() => {
+    if (shareHandled.current || !shareParams || !driveToken) return;
+    shareHandled.current = true;
+    window.history.replaceState({}, '', window.location.pathname);
+    fetchFileById(shareParams.fileId).then(pf => {
+      if (pf) {
+        openDriveFile(pf, driveToken);
+      } else {
+        addToast('Shared file not found.', 'warning');
+        setMode('projects');
+      }
+      setShareLoading(false);
+    }).catch(() => {
+      setShareLoading(false);
+      setMode('projects');
+    });
+  }, [driveToken, shareParams]);
 
   const handleFileSelected = (file: File) => {
     if (videoSrc) URL.revokeObjectURL(videoSrc);
@@ -357,7 +394,7 @@ const App: React.FC = () => {
           inputCodec={scanResult?.video?.codec}
         />
       )}
-      <header className="app-header">
+      <header className="app-header" style={isPresentation ? { display: 'none' } : undefined}>
         <div className="logo">
           <img src="/icons/kissd-logo.svg" alt="KISSD" style={{ height: '22px', width: 'auto', display: 'block' }} />
           <span style={{ color: 'var(--color-text-primary)' }}>Review V03</span>
@@ -462,7 +499,7 @@ const App: React.FC = () => {
       </header>
 
       {/* Project sidebar — available everywhere when logged in */}
-      {user && mode !== 'projects' && (
+      {user && mode !== 'projects' && !isPresentation && (
         <ProjectSidebar
           projects={sidebarProjects}
           onFileClick={(pf) => {
@@ -476,8 +513,18 @@ const App: React.FC = () => {
       )}
 
       <main className="app-main">
+        {/* Loading share link */}
+        {shareLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', color: 'var(--color-text-muted)' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div className="animate-spin" style={{ width: 24, height: 24, border: '2px solid var(--border-color)', borderTopColor: 'var(--color-accent)', borderRadius: '50%', margin: '0 auto 12px' }} />
+              <p style={{ fontSize: '0.875rem' }}>Loading shared file...</p>
+            </div>
+          </div>
+        )}
+
         {/* Projects mode */}
-        {mode === 'projects' && user && (
+        {!shareLoading && mode === 'projects' && user && (
           <ProjectDashboard
             userId={user.uid}
             userName={user.displayName ?? undefined}
@@ -554,7 +601,7 @@ const App: React.FC = () => {
               overflow: 'hidden',
             }}>
               {/* Version bar when opened from project */}
-              {versionContext && versionContext.versions.length > 0 && (
+              {!isPresentation && versionContext && versionContext.versions.length > 0 && (
                 <VersionBar
                   currentFile={versionContext.currentFile}
                   versions={versionContext.versions}
@@ -594,6 +641,7 @@ const App: React.FC = () => {
                       addToast('Files not available. Import them with Drive API connected.', 'warning');
                     }
                   }}
+                  onShareLink={(_url, mode) => addToast(`${mode} link copied to clipboard`, 'success')}
                 />
               )}
               {isImage ? (
@@ -634,11 +682,11 @@ const App: React.FC = () => {
                   onTimeUpdate={setVideoCurrentTime}
                   onVideoReady={setVideoEl}
                   timelineOverlay={tlPreview && tlPreview.blockType !== 'video' ? { type: tlPreview.blockType, thumbnail: tlPreview.thumbnail } : null}
-                  onAddBlack={handleTlAddBlack}
-                  onAddImage={handleTlAddImage}
-                  onAddBip={handleTlAddBip}
-                  onAddSlate={() => { setActiveRightTab('tools'); setSlateForceOpen(n => n + 1); }}
-                  onExportTimeline={() => setShowExportModal(true)}
+                  onAddBlack={isPresentation ? undefined : handleTlAddBlack}
+                  onAddImage={isPresentation ? undefined : handleTlAddImage}
+                  onAddBip={isPresentation ? undefined : handleTlAddBip}
+                  onAddSlate={isPresentation ? undefined : () => { setActiveRightTab('tools'); setSlateForceOpen(n => n + 1); }}
+                  onExportTimeline={isPresentation ? undefined : () => setShowExportModal(true)}
                   exportingTimeline={tlExporting}
                   exportTimelinePct={tlExportPct}
                   timeline={tlRanges ? {
@@ -710,28 +758,32 @@ const App: React.FC = () => {
                     </span>
                   )}
                 </button>
-                <button
-                  role="tab"
-                  aria-selected={activeRightTab === 'specs'}
-                  aria-controls="panel-specs"
-                  id="tab-specs"
-                  className={`tab-btn ${activeRightTab === 'specs' ? 'active' : ''}`}
-                  onClick={() => setActiveRightTab('specs')}
-                  style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
-                >
-                  Specs
-                  {scanning && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={activeRightTab === 'tools'}
-                  aria-controls="panel-tools"
-                  id="tab-tools"
-                  className={`tab-btn ${activeRightTab === 'tools' ? 'active' : ''}`}
-                  onClick={() => setActiveRightTab('tools')}
-                >
-                  Tools
-                </button>
+                {!isPresentation && (
+                  <button
+                    role="tab"
+                    aria-selected={activeRightTab === 'specs'}
+                    aria-controls="panel-specs"
+                    id="tab-specs"
+                    className={`tab-btn ${activeRightTab === 'specs' ? 'active' : ''}`}
+                    onClick={() => setActiveRightTab('specs')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                  >
+                    Specs
+                    {scanning && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
+                  </button>
+                )}
+                {!isPresentation && (
+                  <button
+                    role="tab"
+                    aria-selected={activeRightTab === 'tools'}
+                    aria-controls="panel-tools"
+                    id="tab-tools"
+                    className={`tab-btn ${activeRightTab === 'tools' ? 'active' : ''}`}
+                    onClick={() => setActiveRightTab('tools')}
+                  >
+                    Tools
+                  </button>
+                )}
               </div>
 
               {/* ── Specs tab ───────────────────────────────────────── */}

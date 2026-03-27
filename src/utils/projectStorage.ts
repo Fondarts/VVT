@@ -9,6 +9,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  getDoc,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -184,6 +185,34 @@ export async function fetchFiles(projectId: string, parentPath: string): Promise
       driveDurationMs: data.driveDurationMs ?? undefined,
     };
   });
+}
+
+/** Fetch a single file by document ID */
+export async function fetchFileById(fileId: string): Promise<ProjectFile | null> {
+  const snap = await getDoc(doc(db, FILES, fileId));
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return {
+    id: snap.id,
+    projectId: data.projectId,
+    parentPath: data.parentPath,
+    name: data.name,
+    baseName: data.baseName,
+    versionTag: data.versionTag ?? null,
+    versionNumber: data.versionNumber ?? 0,
+    type: data.type,
+    extension: data.extension,
+    sizeBytes: data.sizeBytes,
+    scanResult: data.scanResult ?? null,
+    addedBy: data.addedBy,
+    addedByName: data.addedByName ?? '',
+    addedAt: (data.addedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+    driveFileId: data.driveFileId ?? undefined,
+    driveCreatedTime: data.driveCreatedTime ?? undefined,
+    driveWidth: data.driveWidth ?? undefined,
+    driveHeight: data.driveHeight ?? undefined,
+    driveDurationMs: data.driveDurationMs ?? undefined,
+  };
 }
 
 export async function addProjectFile(
