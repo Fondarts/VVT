@@ -718,6 +718,43 @@ const server = http.createServer(async (req, res) => {
     } catch (err) { return json(res, { error: err.message }, 500); }
   }
 
+  // GET /proxy-drive?fileId=...&token=... — proxy Google Drive file with range support
+  if (url.pathname === '/proxy-drive' && req.method === 'GET') {
+    const fileId = url.searchParams.get('fileId');
+    const token = url.searchParams.get('token');
+    if (!fileId || !token) return json(res, { error: 'fileId and token required' }, 400);
+
+    try {
+      const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const headers = { 'Authorization': `Bearer ${token}` };
+
+      // Pass through range header for video seeking
+      if (req.headers.range) {
+        headers['Range'] = req.headers.range;
+      }
+
+      const proto = require('https');
+      proto.get(driveUrl, { headers }, (driveRes) => {
+        if (driveRes.statusCode >= 400) {
+          return json(res, { error: `Drive API: ${driveRes.statusCode}` }, driveRes.statusCode);
+        }
+        cors(res);
+        const resHeaders = {
+          'Content-Type': driveRes.headers['content-type'] || 'video/mp4',
+          'Accept-Ranges': 'bytes',
+        };
+        if (driveRes.headers['content-length']) resHeaders['Content-Length'] = driveRes.headers['content-length'];
+        if (driveRes.headers['content-range']) resHeaders['Content-Range'] = driveRes.headers['content-range'];
+
+        res.writeHead(driveRes.statusCode, resHeaders);
+        driveRes.pipe(res);
+      }).on('error', (err) => {
+        json(res, { error: err.message }, 500);
+      });
+      return;
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
   // GET /export/status
   if (url.pathname === '/export/status' && req.method === 'GET') {
     if (!currentJob) return json(res, { active: false });

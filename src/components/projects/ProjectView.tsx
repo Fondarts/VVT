@@ -17,7 +17,7 @@ interface Props {
   onRequestDriveAccess?: () => void;
   onNavigate: (path: string) => void;
   onGoToDashboard: () => void;
-  onFileOpen: (file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => void;
+  onFileOpen: (source: File | string, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => void;
 }
 
 export const ProjectView: React.FC<Props> = ({
@@ -191,17 +191,16 @@ export const ProjectView: React.FC<Props> = ({
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              // Try memory cache (instant)
-              const cached = getLocalFile(pf);
-              if (cached) { onFileOpen(cached, ctx); return; }
-
-              // Show feedback if it needs to fetch
-              if (pf.driveFileId && driveToken) {
-                addToast(`Downloading ${pf.name} from Drive...`, 'info');
-              }
-
               const resolved = await resolveLocalFile(pf);
-              if (resolved) { onFileOpen(resolved, ctx); return; }
+              if (resolved) {
+                if ('file' in resolved) {
+                  onFileOpen(resolved.file, ctx);
+                } else {
+                  // Stream URL from Drive via helper
+                  onFileOpen(resolved.streamUrl, ctx);
+                }
+                return;
+              }
 
               // Not available — file picker
               addToast('File not available. Select it manually.', 'info');

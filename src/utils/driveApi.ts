@@ -29,9 +29,9 @@ export async function findDriveFile(
   return data.files?.[0] ?? null;
 }
 
-/** Get a direct download URL for a Drive file (streams via API) */
-export function getDriveFileUrl(accessToken: string, fileId: string): string {
-  return `${DRIVE_API}/files/${fileId}?alt=media&access_token=${encodeURIComponent(accessToken)}`;
+/** Get a streaming URL via helper proxy (supports range requests for video seeking) */
+export function getDriveStreamUrl(accessToken: string, fileId: string): string {
+  return `http://127.0.0.1:3777/proxy-drive?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(accessToken)}`;
 }
 
 /** Download a Drive file as a File object with correct MIME type */

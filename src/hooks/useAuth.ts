@@ -32,7 +32,7 @@ declare global {
   }
 }
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
 
 /* ── Hook ──────────────────────────────────────────────────────────── */
 export function useAuth() {
@@ -42,6 +42,7 @@ export function useAuth() {
   const [driveToken, setDriveToken] = useState<string | null>(null);
   const initialized = useRef(false);
   const tokenClientRef = useRef<{ requestAccessToken: () => void } | null>(null);
+  const pendingFirebaseLogin = useRef(false);
 
   /* Firebase auth state listener */
   useEffect(() => {
@@ -52,12 +53,16 @@ export function useAuth() {
     return unsub;
   }, []);
 
-  /* Initialize GIS once the <script> loads */
+  /* Initialize GIS */
   useEffect(() => {
     async function handleCredential(response: { credential: string }) {
       try {
         const cred = GoogleAuthProvider.credential(response.credential);
         await signInWithCredential(auth, cred);
+        // After Firebase login, auto-request Drive token
+        if (tokenClientRef.current) {
+          tokenClientRef.current.requestAccessToken();
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('signInWithCredential failed:', msg);
@@ -68,21 +73,20 @@ export function useAuth() {
     function tryInit(): boolean {
       if (initialized.current) return true;
       if (!window.google?.accounts?.id) return false;
+
       window.google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: handleCredential,
       });
 
-      // Initialize OAuth2 token client for Drive API access
+      // OAuth2 token client for Drive access
       if (window.google.accounts.oauth2) {
         tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
-          scope: DRIVE_SCOPE,
+          scope: SCOPES,
           callback: (response: { access_token?: string; error?: string }) => {
             if (response.access_token) {
               setDriveToken(response.access_token);
-            } else {
-              console.warn('OAuth2 token request failed:', response.error);
             }
           },
         });
@@ -97,7 +101,18 @@ export function useAuth() {
     return () => clearInterval(iv);
   }, []);
 
-  /* Sign in — shows Google One Tap, falls back to rendered button */
+  /* Auto-request Drive token when user is already logged in */
+  useEffect(() => {
+    if (user && !driveToken && tokenClientRef.current && !pendingFirebaseLogin.current) {
+      // Small delay to avoid immediate popup on page load
+      const timer = setTimeout(() => {
+        tokenClientRef.current?.requestAccessToken();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [user, driveToken]);
+
+  /* Sign in — One Tap + auto Drive token */
   const signIn = useCallback(() => {
     setError(null);
     const gid = window.google?.accounts?.id;
@@ -105,9 +120,9 @@ export function useAuth() {
       setError('Google sign-in not ready yet — try again in a moment.');
       return;
     }
+    pendingFirebaseLogin.current = true;
     gid.prompt((notification) => {
       if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        // One Tap suppressed → show a standard Google button in a modal
         const overlay = document.createElement('div');
         overlay.style.cssText =
           'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99998;display:flex;align-items:center;justify-content:center;';
@@ -137,7 +152,7 @@ export function useAuth() {
     });
   }, []);
 
-  /** Request Drive API access token (shows consent if first time) */
+  /** Manually request Drive access (if auto didn't trigger) */
   const requestDriveAccess = useCallback(() => {
     if (tokenClientRef.current) {
       tokenClientRef.current.requestAccessToken();
@@ -152,6 +167,7 @@ export function useAuth() {
     await fbSignOut(auth);
     setDriveToken(null);
     setError(null);
+    pendingFirebaseLogin.current = false;
   }, [user]);
 
   return { user, loading, error, signIn, signOut, driveToken, requestDriveAccess };

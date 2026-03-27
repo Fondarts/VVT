@@ -415,8 +415,15 @@ const App: React.FC = () => {
             userId={user.uid}
             driveToken={driveToken}
             onRequestDriveAccess={requestDriveAccess}
-            onFileOpen={(file: File, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
-              handleFileSelected(file);
+            onFileOpen={(source: File | string, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
+              if (typeof source === 'string') {
+                // Stream URL — set videoSrc directly without scan
+                setVideoSrc(source);
+                setSelectedFile(null);
+                setIsImage(false);
+              } else {
+                handleFileSelected(source);
+              }
               setVersionContext(ctx ?? null);
               setMode('single');
             }}

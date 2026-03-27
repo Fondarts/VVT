@@ -16,7 +16,7 @@ interface Props {
   userId: string;
   driveToken?: string | null;
   onRequestDriveAccess?: () => void;
-  onFileOpen: (file: File, ctx?: VersionContext) => void;
+  onFileOpen: (source: File | string, ctx?: VersionContext) => void;
 }
 
 export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onRequestDriveAccess, onFileOpen }) => {

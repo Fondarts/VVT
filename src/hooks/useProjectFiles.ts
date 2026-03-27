@@ -12,7 +12,7 @@ import {
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
 import { cacheFile, getCachedFile } from '../utils/fileCache';
-import { findDriveFile, downloadDriveFile } from '../utils/driveApi';
+import { findDriveFile, getDriveStreamUrl } from '../utils/driveApi';
 
 // Global cache: files dropped in this session are kept in memory
 // so double-click can open them without re-picking
@@ -35,8 +35,8 @@ export interface UseProjectFilesReturn {
   reorderVersion: (fileId: string, newVersionNumber: number) => Promise<void>;
   /** Get file from memory cache (sync) */
   getLocalFile: (pf: ProjectFile) => File | null;
-  /** Get file from memory cache or OPFS persistent cache */
-  resolveLocalFile: (pf: ProjectFile) => Promise<File | null>;
+  /** Resolve file: memory → OPFS → Drive stream URL */
+  resolveLocalFile: (pf: ProjectFile) => Promise<{ file: File } | { streamUrl: string } | null>;
 }
 
 export function useProjectFiles(
@@ -150,26 +150,19 @@ export function useProjectFiles(
     return fileCache.get(cacheKey(pf.name, pf.sizeBytes)) ?? null;
   }, []);
 
-  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<File | null> => {
+  const resolveLocalFile = useCallback(async (pf: ProjectFile): Promise<{ file: File } | { streamUrl: string } | null> => {
     // 1. Memory cache (instant)
     const cached = fileCache.get(cacheKey(pf.name, pf.sizeBytes));
-    if (cached) return cached;
+    if (cached) return { file: cached };
     // 2. OPFS persistent cache (survives refresh, same machine)
     const opfs = await getCachedFile(pf.name, pf.sizeBytes);
     if (opfs) {
       fileCache.set(cacheKey(pf.name, pf.sizeBytes), opfs);
-      return opfs;
+      return { file: opfs };
     }
-    // 3. Google Drive API (works cross-team if driveFileId saved)
+    // 3. Google Drive streaming via helper proxy (no download needed)
     if (driveToken && pf.driveFileId) {
-      try {
-        const file = await downloadDriveFile(driveToken, pf.driveFileId, pf.name);
-        fileCache.set(cacheKey(pf.name, pf.sizeBytes), file);
-        cacheFile(file).catch(() => {}); // cache in OPFS for next time
-        return file;
-      } catch (e) {
-        console.warn('[resolveLocalFile] Drive download failed:', e);
-      }
+      return { streamUrl: getDriveStreamUrl(driveToken, pf.driveFileId) };
     }
     return null;
   }, [driveToken]);
