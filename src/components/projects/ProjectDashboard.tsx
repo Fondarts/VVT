@@ -15,11 +15,10 @@ interface VersionContext {
 interface Props {
   userId: string;
   driveToken?: string | null;
-  onRequestDriveAccess?: () => void;
   onFileOpen: (source: File | string, ctx?: VersionContext) => void;
 }
 
-export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onRequestDriveAccess, onFileOpen }) => {
+export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onFileOpen }) => {
   const { nav, goToDashboard, goToProject, goToFolder, breadcrumbs } = useProjectNav();
   const { projects, loading, createProject, deleteProject } = useProjects();
 
@@ -51,7 +50,6 @@ export const ProjectDashboard: React.FC<Props> = ({ userId, driveToken, onReques
             breadcrumbs={breadcrumbs}
             userId={userId}
             driveToken={driveToken}
-            onRequestDriveAccess={onRequestDriveAccess}
             onNavigate={goToFolder}
             onGoToDashboard={goToDashboard}
             onFileOpen={onFileOpen}

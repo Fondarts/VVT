@@ -59,10 +59,6 @@ export function useAuth() {
       try {
         const cred = GoogleAuthProvider.credential(response.credential);
         await signInWithCredential(auth, cred);
-        // After Firebase login, auto-request Drive token
-        if (tokenClientRef.current) {
-          tokenClientRef.current.requestAccessToken();
-        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('signInWithCredential failed:', msg);
@@ -101,16 +97,10 @@ export function useAuth() {
     return () => clearInterval(iv);
   }, []);
 
-  /* Auto-request Drive token when user is already logged in */
-  useEffect(() => {
-    if (user && !driveToken && tokenClientRef.current && !pendingFirebaseLogin.current) {
-      // Small delay to avoid immediate popup on page load
-      const timer = setTimeout(() => {
-        tokenClientRef.current?.requestAccessToken();
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [user, driveToken]);
+  /* Note: we don't auto-request Drive token on page load because
+     Chrome blocks popups without user gesture. The Drive token is
+     requested after Firebase login (in handleCredential) or manually
+     via requestDriveAccess button click. */
 
   /* Sign in — One Tap + auto Drive token */
   const signIn = useCallback(() => {

@@ -394,6 +394,11 @@ const App: React.FC = () => {
                 <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {user.displayName || user.email}
                 </span>
+                {!driveToken && (
+                  <button className="btn btn-primary btn-sm" onClick={requestDriveAccess} title="Connect Google Drive for file streaming" style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
+                    Drive
+                  </button>
+                )}
                 <button className="btn btn-secondary btn-sm" onClick={signOut} title="Sign out" style={{ padding: '4px 6px' }}>
                   <LogOut size={14} />
                 </button>
@@ -414,7 +419,6 @@ const App: React.FC = () => {
           <ProjectDashboard
             userId={user.uid}
             driveToken={driveToken}
-            onRequestDriveAccess={requestDriveAccess}
             onFileOpen={(source: File | string, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
               if (typeof source === 'string') {
                 // Stream URL — set videoSrc directly without scan
