@@ -259,21 +259,21 @@ export const FeedbackPanel = React.memo<Props>(({
   };
 
   const drawToolsRow = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
       {DRAW_COLORS.map(c => (
         <button key={c} title={`Draw (${c})`} onClick={() => onStartDraw?.(c, 'draw')}
-          style={{ width: 14, height: 14, borderRadius: '50%', background: c, border: '2px solid rgba(255,255,255,0.18)', cursor: 'pointer', padding: 0, flexShrink: 0 }} />
+          style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: '2px solid rgba(255,255,255,0.18)', cursor: 'pointer', padding: 0, flexShrink: 0 }} />
       ))}
-      <div style={{ width: '1px', height: '12px', background: 'var(--color-border)', flexShrink: 0 }} />
-      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#FA4900', 'draw')} title="Pencil" style={{ padding: '2px 5px' }}><Pencil size={11} /></button>
-      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#FA4900', 'text')} title="Text" style={{ padding: '2px 5px' }}><Type size={11} /></button>
-      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#000', 'eraser')} title="Eraser" style={{ padding: '2px 5px' }}><Eraser size={11} /></button>
-      <div style={{ width: '1px', height: '12px', background: 'var(--color-border)', flexShrink: 0 }} />
-      <button className="btn btn-secondary btn-sm" style={{ padding: '2px 4px' }} onClick={() => changeLineWidth(-1)}><Minus size={9} /></button>
-      <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', minWidth: '12px', textAlign: 'center' }}>{drawLineWidth}</span>
-      <button className="btn btn-secondary btn-sm" style={{ padding: '2px 4px' }} onClick={() => changeLineWidth(1)}><Plus size={9} /></button>
-      <div style={{ width: '1px', height: '12px', background: 'var(--color-border)', flexShrink: 0 }} />
-      <button className="btn btn-secondary btn-sm" style={{ padding: '2px 4px' }} onClick={() => onUndoLastStroke?.()} title="Undo"><Undo2 size={11} /></button>
+      <div style={{ width: '1px', height: '18px', background: 'var(--color-border)', flexShrink: 0 }} />
+      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#FA4900', 'draw')} title="Pencil" style={{ padding: '5px 7px' }}><Pencil size={15} /></button>
+      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#FA4900', 'text')} title="Text" style={{ padding: '5px 7px' }}><Type size={15} /></button>
+      <button className="btn btn-secondary btn-sm" onClick={() => onStartDraw?.('#000', 'eraser')} title="Eraser" style={{ padding: '5px 7px' }}><Eraser size={15} /></button>
+      <div style={{ width: '1px', height: '18px', background: 'var(--color-border)', flexShrink: 0 }} />
+      <button className="btn btn-secondary btn-sm" style={{ padding: '5px 6px' }} onClick={() => changeLineWidth(-1)}><Minus size={13} /></button>
+      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', minWidth: '14px', textAlign: 'center' }}>{drawLineWidth}</span>
+      <button className="btn btn-secondary btn-sm" style={{ padding: '5px 6px' }} onClick={() => changeLineWidth(1)}><Plus size={13} /></button>
+      <div style={{ width: '1px', height: '18px', background: 'var(--color-border)', flexShrink: 0 }} />
+      <button className="btn btn-secondary btn-sm" style={{ padding: '5px 6px' }} onClick={() => onUndoLastStroke?.()} title="Undo"><Undo2 size={15} /></button>
     </div>
   );
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import type { ProjectFile } from '../../shared/types';
 import { useProjectNav } from '../../hooks/useProjectNav';
 import { useProjects } from '../../hooks/useProjects';
@@ -22,6 +22,15 @@ interface Props {
 export const ProjectDashboard: React.FC<Props> = ({ userId, userName, driveToken, onFileOpen }) => {
   const { nav, goToDashboard, goToProject, goToFolder, breadcrumbs } = useProjectNav();
   const { projects, loading, createProject, deleteProject, renameProject } = useProjects();
+
+  // Navigate to project if requested from sidebar
+  useEffect(() => {
+    const target = sessionStorage.getItem('kissd_goto_project');
+    if (target) {
+      sessionStorage.removeItem('kissd_goto_project');
+      goToProject(target);
+    }
+  }, [goToProject]);
 
   const currentProject = nav.view === 'project'
     ? projects.find(p => p.id === nav.projectId)

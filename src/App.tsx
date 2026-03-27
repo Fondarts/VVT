@@ -56,7 +56,12 @@ import { ProjectDashboard } from './components/projects/ProjectDashboard';
 import { HelperStatus } from './components/HelperStatus';
 import { VersionBar } from './components/projects/VersionBar';
 import { VersionCompare } from './components/projects/VersionCompare';
-import { getDriveStreamUrl } from './utils/driveApi';
+import { ProjectSidebar } from './components/projects/ProjectSidebar';
+import { useProjects } from './hooks/useProjects';
+import { getDriveStreamUrl, downloadDriveFile } from './utils/driveApi';
+import { getCachedFile } from './utils/fileCache';
+import { fetchFiles } from './utils/projectStorage';
+import { groupByVersion } from './utils/versionDetection';
 import type { ProjectFile } from './shared/types';
 
 interface VersionContext {
@@ -68,6 +73,7 @@ interface VersionContext {
 const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
+  const { projects: sidebarProjects } = useProjects();
   const [mode, setMode] = useState<'single' | 'batch' | 'projects'>('projects');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImage, setIsImage] = useState(false);
@@ -188,6 +194,47 @@ const App: React.FC = () => {
       handleImageScan(file);
     } else {
       handleScan(file);
+    }
+  };
+
+  /** Open a Drive file: try local cache first, then download from Drive.
+      Always goes through handleFileSelected so audio, scan, and all components work. */
+  const openDriveFile = async (pf: ProjectFile, token: string, ctx?: VersionContext | null) => {
+    if (!pf.driveFileId) return;
+    setMode('single');
+
+    // Build version context if not provided
+    if (!ctx) {
+      try {
+        const siblings = await fetchFiles(pf.projectId, pf.parentPath);
+        const groups = groupByVersion(siblings);
+        const group = groups.find(g => g.versions.some(v => v.id === pf.id));
+        if (group && group.versions.length > 0) {
+          ctx = {
+            currentFile: pf,
+            versions: group.versions,
+            getLocalFile: () => null,
+          };
+        }
+      } catch { /* proceed without context */ }
+    }
+    setVersionContext(ctx ?? null);
+
+    // 1. Try OPFS cache (file was previously dropped from Drive Desktop)
+    const cached = await getCachedFile(pf.name, pf.sizeBytes);
+    if (cached) {
+      handleFileSelected(cached);
+      return;
+    }
+
+    // 2. Download from Drive API → full local File → handleFileSelected
+    try {
+      addToast('Downloading from Drive...', 'info');
+      const file = await downloadDriveFile(token, pf.driveFileId, pf.name);
+      handleFileSelected(file);
+    } catch (err) {
+      console.warn('Drive download failed:', err);
+      addToast('Download failed. Try opening from the dashboard.', 'warning');
     }
   };
 
@@ -414,6 +461,20 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Project sidebar — available everywhere when logged in */}
+      {user && mode !== 'projects' && (
+        <ProjectSidebar
+          projects={sidebarProjects}
+          onFileClick={(pf) => {
+            if (driveToken && pf.driveFileId) {
+              openDriveFile(pf, driveToken);
+            } else {
+              addToast('File not available — connect Google Drive.', 'warning');
+            }
+          }}
+        />
+      )}
+
       <main className="app-main">
         {/* Projects mode */}
         {mode === 'projects' && user && (
@@ -422,8 +483,10 @@ const App: React.FC = () => {
             userName={user.displayName ?? undefined}
             driveToken={driveToken}
             onFileOpen={(source: File | string, ctx?: { currentFile: ProjectFile; versions: ProjectFile[]; getLocalFile: (pf: ProjectFile) => File | null }) => {
-              if (typeof source === 'string') {
-                // Stream URL — set videoSrc directly without scan
+              if (typeof source === 'string' && ctx?.currentFile && driveToken && ctx.currentFile.driveFileId) {
+                openDriveFile(ctx.currentFile, driveToken, ctx);
+                return;
+              } else if (typeof source === 'string') {
                 setVideoSrc(source);
                 setSelectedFile(null);
                 setIsImage(false);

@@ -152,6 +152,40 @@ export function subscribeFiles(
   });
 }
 
+/** One-shot fetch of files in a folder (for building version context) */
+export async function fetchFiles(projectId: string, parentPath: string): Promise<ProjectFile[]> {
+  const q = query(
+    collection(db, FILES),
+    where('projectId', '==', projectId),
+    where('parentPath', '==', parentPath),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      projectId: data.projectId,
+      parentPath: data.parentPath,
+      name: data.name,
+      baseName: data.baseName,
+      versionTag: data.versionTag ?? null,
+      versionNumber: data.versionNumber ?? 0,
+      type: data.type,
+      extension: data.extension,
+      sizeBytes: data.sizeBytes,
+      scanResult: data.scanResult ?? null,
+      addedBy: data.addedBy,
+      addedByName: data.addedByName ?? '',
+      addedAt: (data.addedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+      driveFileId: data.driveFileId ?? undefined,
+      driveCreatedTime: data.driveCreatedTime ?? undefined,
+      driveWidth: data.driveWidth ?? undefined,
+      driveHeight: data.driveHeight ?? undefined,
+      driveDurationMs: data.driveDurationMs ?? undefined,
+    };
+  });
+}
+
 export async function addProjectFile(
   projectId: string,
   parentPath: string,
