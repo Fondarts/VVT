@@ -86,34 +86,39 @@ export const VersionCompare: React.FC<Props> = ({ fileA, fileB, onClose }) => {
       </div>
 
       {/* Videos side by side */}
-      <div style={{ flex: 1, display: 'flex', gap: '2px', overflow: 'hidden', padding: '8px' }}>
-        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: 'flex', gap: '4px', overflow: 'hidden', padding: '8px', alignItems: 'center' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0, height: '100%' }}>
           <div style={{
             padding: '4px 8px', fontSize: '0.68rem', fontWeight: 700,
-            color: '#FA4900', textTransform: 'uppercase', letterSpacing: '0.05em',
+            color: '#FA4900', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0,
           }}>
             {fileA.projectFile.versionTag?.toUpperCase() || 'Version A'}
           </div>
-          <video
-            ref={videoARef}
-            src={fileA.src}
-            style={{ flex: 1, width: '100%', objectFit: 'contain', background: '#000', borderRadius: '6px' }}
-            onClick={togglePlay}
-          />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 0 }}>
+            <video
+              ref={videoARef}
+              src={fileA.src}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', background: '#000', borderRadius: '6px' }}
+              onClick={togglePlay}
+            />
+          </div>
         </div>
-        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: '1px', background: 'var(--border-color)', alignSelf: 'stretch', flexShrink: 0 }} />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0, height: '100%' }}>
           <div style={{
             padding: '4px 8px', fontSize: '0.68rem', fontWeight: 700,
-            color: '#0A84FF', textTransform: 'uppercase', letterSpacing: '0.05em',
+            color: '#0A84FF', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0,
           }}>
             {fileB.projectFile.versionTag?.toUpperCase() || 'Version B'}
           </div>
-          <video
-            ref={videoBRef}
-            src={fileB.src}
-            style={{ flex: 1, width: '100%', objectFit: 'contain', background: '#000', borderRadius: '6px' }}
-            onClick={togglePlay}
-          />
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 0 }}>
+            <video
+              ref={videoBRef}
+              src={fileB.src}
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', background: '#000', borderRadius: '6px' }}
+              onClick={togglePlay}
+            />
+          </div>
         </div>
       </div>
 
