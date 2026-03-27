@@ -1,5 +1,4 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Activity, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface WaveformProps {
   audioData: number[];
@@ -7,7 +6,6 @@ interface WaveformProps {
   currentTime: number;
   videoEl?: HTMLVideoElement | null;
   truePeakMax?: number;
-  defaultCollapsed?: boolean;
 }
 
 import { formatDuration as formatTime } from '../utils/formatTime';
@@ -19,8 +17,7 @@ function dBToLinear(dB: number): number {
 const WAVEFORM_HEIGHT = 50;
 const VU_WIDTH = 52;
 
-export const Waveform = React.memo<WaveformProps>(({ audioData, duration, currentTime, videoEl, truePeakMax, defaultCollapsed }) => {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed ?? false);
+export const Waveform = React.memo<WaveformProps>(({ audioData, duration, currentTime, videoEl, truePeakMax }) => {
   const [vScale, setVScale] = useState(1);
   const waveCanvasRef = useRef<HTMLCanvasElement>(null);
   const vuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -349,92 +346,66 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
   }, [videoEl, duration]);
 
   return (
-    <div className="card">
-      <div
-        className="card-header"
-        onClick={() => setCollapsed(c => !c)}
-        style={{ cursor: 'pointer', userSelect: 'none', padding: '6px 12px' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-          <Activity size={12} />
+    <div className="card" style={{ padding: '10px 12px' }}>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+        {/* Waveform */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <canvas
+            ref={waveCanvasRef}
+            width={800}
+            height={WAVEFORM_HEIGHT}
+            aria-label="Audio waveform visualization"
+            style={{
+              width: '100%',
+              height: `${WAVEFORM_HEIGHT}px`,
+              background: '#191919',
+              borderRadius: '4px',
+              display: 'block',
+            }}
+          />
         </div>
-        {!collapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }} onClick={e => e.stopPropagation()}>
-            <span style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-              ×{vScale.toFixed(1)}
-            </span>
-            <input
-              type="range"
-              aria-label="Waveform vertical scale"
-              min={1}
-              max={8}
-              step={0.5}
-              value={vScale}
-              onChange={e => setVScale(parseFloat(e.target.value))}
-              style={{ width: '60px', cursor: 'pointer', accentColor: '#E1FF1C' }}
-              title="Vertical scale"
-            />
-          </div>
-        )}
-      </div>
-      {!collapsed && <div className="card-content" style={{ padding: '12px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-          {/* Waveform */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <canvas
-              ref={waveCanvasRef}
-              width={800}
-              height={WAVEFORM_HEIGHT}
-              aria-label="Audio waveform visualization"
-              style={{
-                width: '100%',
-                height: `${WAVEFORM_HEIGHT}px`,
-                background: '#191919',
-                borderRadius: '4px',
-                display: 'block',
-              }}
-            />
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: '6px',
-              fontSize: '0.6875rem',
-              color: 'var(--color-text-muted)',
-              fontFamily: 'var(--font-mono)',
-            }}>
-              <span>00:00:00.00</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-          </div>
 
-          {/* VU Meter */}
-          <div style={{ width: `${VU_WIDTH}px`, flexShrink: 0 }}>
-            <canvas
-              ref={vuCanvasRef}
-              width={VU_WIDTH}
-              height={WAVEFORM_HEIGHT}
-              aria-label="Audio VU meter"
-              style={{
-                width: `${VU_WIDTH}px`,
-                height: `${WAVEFORM_HEIGHT}px`,
-                background: '#191919',
-                borderRadius: '4px',
-                display: 'block',
-              }}
-            />
-            <div style={{
-              marginTop: '6px',
-              fontSize: '0.6875rem',
-              color: 'var(--color-text-muted)',
-              textAlign: 'center',
-              fontFamily: 'var(--font-mono)',
-            }}>
-              dBFS
-            </div>
-          </div>
+        {/* VU Meter */}
+        <div style={{ width: `${VU_WIDTH}px`, flexShrink: 0 }}>
+          <canvas
+            ref={vuCanvasRef}
+            width={VU_WIDTH}
+            height={WAVEFORM_HEIGHT}
+            aria-label="Audio VU meter"
+            style={{
+              width: `${VU_WIDTH}px`,
+              height: `${WAVEFORM_HEIGHT}px`,
+              background: '#191919',
+              borderRadius: '4px',
+              display: 'block',
+            }}
+          />
         </div>
-      </div>}
+      </div>
+
+      {/* Bottom bar: timecodes + zoom */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginTop: '4px', fontSize: '0.6875rem', color: 'var(--color-text-muted)',
+        fontFamily: 'var(--font-mono)',
+      }}>
+        <span>00:00:00.00</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span>×{vScale.toFixed(1)}</span>
+          <input
+            type="range"
+            aria-label="Waveform vertical scale"
+            min={1}
+            max={8}
+            step={0.5}
+            value={vScale}
+            onChange={e => setVScale(parseFloat(e.target.value))}
+            style={{ width: '50px', cursor: 'pointer', accentColor: '#E1FF1C' }}
+            title="Vertical scale"
+          />
+        </div>
+        <span>{formatTime(duration)}</span>
+      </div>
     </div>
   );
 });

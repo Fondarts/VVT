@@ -18,13 +18,10 @@ export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVer
   const hasMultiple = versions.length > 1;
 
   return (
-    <div style={{
+    <div className="tab-nav" style={{
       display: 'flex', alignItems: 'center', gap: '10px',
-      padding: '8px 16px',
-      background: 'var(--color-bg-secondary)',
-      border: '1px solid var(--border-color)',
-      borderRadius: '8px',
-      marginBottom: '12px',
+      padding: 'var(--spacing-xs)',
+      marginBottom: '0',
       fontSize: '0.8125rem',
     }}>
       <button

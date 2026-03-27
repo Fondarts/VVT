@@ -482,49 +482,6 @@ const App: React.FC = () => {
 
         {mode === 'single' && videoSrc && (
           <>
-          {/* Version bar when opened from project */}
-          {versionContext && versionContext.versions.length > 0 && (
-            <VersionBar
-              currentFile={versionContext.currentFile}
-              versions={versionContext.versions}
-              onBack={() => { setMode('projects'); setVersionContext(null); }}
-              onSwitchVersion={(pf) => {
-                const localFile = versionContext.getLocalFile(pf);
-                if (localFile) {
-                  handleFileSelected(localFile);
-                  setVersionContext({ ...versionContext, currentFile: pf });
-                } else {
-                  const input = document.createElement('input');
-                  input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
-                  input.onchange = () => {
-                    const f = input.files?.[0];
-                    if (f) { handleFileSelected(f); setVersionContext({ ...versionContext, currentFile: pf }); }
-                  };
-                  input.click();
-                }
-              }}
-              onCompare={(a, b) => {
-                const getSrc = (pf: ProjectFile): string | null => {
-                  const local = versionContext.getLocalFile(pf);
-                  if (local) return URL.createObjectURL(local);
-                  if (driveToken && pf.driveFileId) {
-                    return getDriveStreamUrl(driveToken, pf.driveFileId);
-                  }
-                  return null;
-                };
-                const srcA = getSrc(a);
-                const srcB = getSrc(b);
-                if (srcA && srcB) {
-                  setCompareState({
-                    fileA: { projectFile: a, src: srcA },
-                    fileB: { projectFile: b, src: srcB },
-                  });
-                } else {
-                  addToast('Files not available. Import them with Drive API connected.', 'warning');
-                }
-              }}
-            />
-          )}
           <div className="results-container">
             {/* Left column */}
             <div className="results-column" style={{
@@ -533,6 +490,49 @@ const App: React.FC = () => {
               display: 'flex', flexDirection: 'column',
               overflow: 'hidden',
             }}>
+              {/* Version bar when opened from project */}
+              {versionContext && versionContext.versions.length > 0 && (
+                <VersionBar
+                  currentFile={versionContext.currentFile}
+                  versions={versionContext.versions}
+                  onBack={() => { setMode('projects'); setVersionContext(null); }}
+                  onSwitchVersion={(pf) => {
+                    const localFile = versionContext.getLocalFile(pf);
+                    if (localFile) {
+                      handleFileSelected(localFile);
+                      setVersionContext({ ...versionContext, currentFile: pf });
+                    } else {
+                      const input = document.createElement('input');
+                      input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
+                      input.onchange = () => {
+                        const f = input.files?.[0];
+                        if (f) { handleFileSelected(f); setVersionContext({ ...versionContext, currentFile: pf }); }
+                      };
+                      input.click();
+                    }
+                  }}
+                  onCompare={(a, b) => {
+                    const getSrc = (pf: ProjectFile): string | null => {
+                      const local = versionContext.getLocalFile(pf);
+                      if (local) return URL.createObjectURL(local);
+                      if (driveToken && pf.driveFileId) {
+                        return getDriveStreamUrl(driveToken, pf.driveFileId);
+                      }
+                      return null;
+                    };
+                    const srcA = getSrc(a);
+                    const srcB = getSrc(b);
+                    if (srcA && srcB) {
+                      setCompareState({
+                        fileA: { projectFile: a, src: srcA },
+                        fileB: { projectFile: b, src: srcB },
+                      });
+                    } else {
+                      addToast('Files not available. Import them with Drive API connected.', 'warning');
+                    }
+                  }}
+                />
+              )}
               {isImage ? (
                 <ErrorBoundary fallbackLabel="Image viewer crashed">
                 <ImageViewer
@@ -607,14 +607,13 @@ const App: React.FC = () => {
 
 
               {!isImage && scanResult && waveformData.length > 0 && (
-                <div style={{ flexShrink: 0 }}>
+                <div style={{ flex: '0 0 auto', marginTop: '8px' }}>
                 <Waveform
                   audioData={waveformData}
                   duration={scanResult.file.duration}
                   currentTime={videoCurrentTime}
                   videoEl={videoEl}
                   truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
-                  defaultCollapsed={timelineBlocks.length > 0}
                 />
                 </div>
               )}
