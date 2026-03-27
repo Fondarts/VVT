@@ -191,12 +191,20 @@ export const ProjectView: React.FC<Props> = ({
               );
               const ctx = group ? { currentFile: pf, versions: group.versions, getLocalFile } : undefined;
 
-              // Try memory cache then OPFS persistent cache
+              // Try memory cache (instant)
+              const cached = getLocalFile(pf);
+              if (cached) { onFileOpen(cached, ctx); return; }
+
+              // Show feedback if it needs to fetch
+              if (pf.driveFileId && driveToken) {
+                addToast(`Downloading ${pf.name} from Drive...`, 'info');
+              }
+
               const resolved = await resolveLocalFile(pf);
               if (resolved) { onFileOpen(resolved, ctx); return; }
 
-              // Not in cache — ask user to select it
-              addToast('File not in cache. Select it to open.', 'info');
+              // Not available — file picker
+              addToast('File not available. Select it manually.', 'info');
               const input = document.createElement('input');
               input.type = 'file'; input.accept = 'video/*,image/*,audio/*';
               input.onchange = () => {

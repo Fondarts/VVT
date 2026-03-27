@@ -163,8 +163,7 @@ export function useProjectFiles(
     // 3. Google Drive API (works cross-team if driveFileId saved)
     if (driveToken && pf.driveFileId) {
       try {
-        const blob = await downloadDriveFile(driveToken, pf.driveFileId);
-        const file = new File([blob], pf.name, { type: blob.type });
+        const file = await downloadDriveFile(driveToken, pf.driveFileId, pf.name);
         fileCache.set(cacheKey(pf.name, pf.sizeBytes), file);
         cacheFile(file).catch(() => {}); // cache in OPFS for next time
         return file;
