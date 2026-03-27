@@ -55,6 +55,13 @@ export const VersionCompare: React.FC<Props> = ({ fileA, fileB, onClose }) => {
     return () => { a.removeEventListener('loadedmetadata', onMeta); a.removeEventListener('timeupdate', onTime); };
   }, []);
 
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const fmtTime = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60);
@@ -82,7 +89,9 @@ export const VersionCompare: React.FC<Props> = ({ fileA, fileB, onClose }) => {
             </span>
           </div>
         </div>
-        <button className="btn btn-icon btn-sm" onClick={onClose}><X size={18} /></button>
+        <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 12px' }}>
+          <X size={16} /> Close
+        </button>
       </div>
 
       {/* Videos side by side */}
