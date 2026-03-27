@@ -916,21 +916,22 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-          {/* Version compare overlay */}
-          {compareState && (
-            <VersionCompare
-              fileA={compareState.fileA}
-              fileB={compareState.fileB}
-              onClose={() => {
-                URL.revokeObjectURL(compareState.fileA.src);
-                URL.revokeObjectURL(compareState.fileB.src);
-                setCompareState(null);
-              }}
-            />
-          )}
           </>
         )}
       </main>
+
+      {/* Version compare overlay — rendered outside main for proper z-index */}
+      {compareState && (
+        <VersionCompare
+          fileA={compareState.fileA}
+          fileB={compareState.fileB}
+          onClose={() => {
+            if (compareState.fileA.src.startsWith('blob:')) URL.revokeObjectURL(compareState.fileA.src);
+            if (compareState.fileB.src.startsWith('blob:')) URL.revokeObjectURL(compareState.fileB.src);
+            setCompareState(null);
+          }}
+        />
+      )}
 
       {/* Custom Preset Modal */}
       {showCustomModal && (
