@@ -56,6 +56,7 @@ import { ProjectDashboard } from './components/projects/ProjectDashboard';
 import { HelperStatus } from './components/HelperStatus';
 import { VersionBar } from './components/projects/VersionBar';
 import { VersionCompare } from './components/projects/VersionCompare';
+import { getDriveStreamUrl } from './utils/driveApi';
 import type { ProjectFile } from './shared/types';
 
 interface VersionContext {
@@ -457,7 +458,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {mode === 'single' && !selectedFile && (
+        {mode === 'single' && !selectedFile && !videoSrc && (
           <div
             className={`dropzone${isDragOver ? ' drag-over' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -502,15 +503,23 @@ const App: React.FC = () => {
                 }
               }}
               onCompare={(a, b) => {
-                const fileA = versionContext.getLocalFile(a);
-                const fileB = versionContext.getLocalFile(b);
-                if (fileA && fileB) {
+                const getSrc = (pf: ProjectFile): string | null => {
+                  const local = versionContext.getLocalFile(pf);
+                  if (local) return URL.createObjectURL(local);
+                  if (driveToken && pf.driveFileId) {
+                    return getDriveStreamUrl(driveToken, pf.driveFileId);
+                  }
+                  return null;
+                };
+                const srcA = getSrc(a);
+                const srcB = getSrc(b);
+                if (srcA && srcB) {
                   setCompareState({
-                    fileA: { projectFile: a, src: URL.createObjectURL(fileA) },
-                    fileB: { projectFile: b, src: URL.createObjectURL(fileB) },
+                    fileA: { projectFile: a, src: srcA },
+                    fileB: { projectFile: b, src: srcB },
                   });
                 } else {
-                  addToast('Both files must be available locally to compare. Re-drop them from Drive.', 'warning');
+                  addToast('Files not available. Import them with Drive API connected.', 'warning');
                 }
               }}
             />

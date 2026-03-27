@@ -97,10 +97,28 @@ export function useAuth() {
     return () => clearInterval(iv);
   }, []);
 
-  /* Note: we don't auto-request Drive token on page load because
-     Chrome blocks popups without user gesture. The Drive token is
-     requested after Firebase login (in handleCredential) or manually
-     via requestDriveAccess button click. */
+  /* Once user is logged in and has granted Drive consent before,
+     silently refresh the token (no popup). If this fails, user
+     clicks "Drive" button once and never again. */
+  useEffect(() => {
+    if (!user || driveToken || !tokenClientRef.current) return;
+    // Try silent token refresh (works if consent was granted before)
+    try {
+      tokenClientRef.current = window.google?.accounts?.oauth2?.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SCOPES,
+        prompt: '', // empty = silent if consent already granted
+        hint: user.email || undefined,
+        callback: (response: { access_token?: string; error?: string }) => {
+          if (response.access_token) {
+            setDriveToken(response.access_token);
+          }
+          // If error, user needs to click "Drive" button (one-time popup)
+        },
+      }) as { requestAccessToken: () => void };
+      tokenClientRef.current.requestAccessToken();
+    } catch { /* ignore */ }
+  }, [user, driveToken]);
 
   /* Sign in — One Tap + auto Drive token */
   const signIn = useCallback(() => {
