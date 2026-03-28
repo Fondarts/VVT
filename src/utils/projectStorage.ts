@@ -21,8 +21,10 @@ import type { Project, ProjectFolder, ProjectFile, ScanResult } from '../shared/
 const PROJECTS = 'projects';
 
 export function subscribeProjects(callback: (projects: Project[]) => void): () => void {
+  console.log('[Firestore] subscribeProjects: setting up listener...');
   const q = query(collection(db, PROJECTS), orderBy('updatedAt', 'desc'));
   return onSnapshot(q, (snap) => {
+    console.log('[Firestore] subscribeProjects: got', snap.size, 'projects', snap.docs.map(d => d.data().name));
     const projects: Project[] = snap.docs.map(d => {
       const data = d.data();
       return {
