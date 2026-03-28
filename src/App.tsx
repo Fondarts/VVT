@@ -75,7 +75,7 @@ export type ViewMode = 'full' | 'internal' | 'presentation';
 const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
-  const { projects: sidebarProjects } = useProjects();
+  const { projects: sidebarProjects } = useProjects(user?.uid);
   // Detect share link params ONCE at init
   const [shareParams] = useState(() => {
     const params = new URLSearchParams(window.location.search);

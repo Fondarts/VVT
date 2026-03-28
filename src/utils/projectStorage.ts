@@ -35,6 +35,10 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
       };
     });
     callback(projects);
+  }, (err) => {
+    console.error('[Firestore] subscribeProjects error:', err);
+    // Return empty list so UI doesn't hang on loading forever
+    callback([]);
   });
 }
 

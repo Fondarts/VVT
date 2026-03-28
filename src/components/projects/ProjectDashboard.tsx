@@ -21,7 +21,7 @@ interface Props {
 
 export const ProjectDashboard: React.FC<Props> = ({ userId, userName, driveToken, onFileOpen }) => {
   const { nav, goToDashboard, goToProject, goToFolder, breadcrumbs } = useProjectNav();
-  const { projects, loading, createProject, deleteProject, renameProject } = useProjects();
+  const { projects, loading, createProject, deleteProject, renameProject } = useProjects(userId);
 
   // Navigate to project if requested from sidebar
   useEffect(() => {

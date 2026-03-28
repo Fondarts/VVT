@@ -10,17 +10,23 @@ export interface UseProjectsReturn {
   renameProject: (projectId: string, newName: string) => Promise<void>;
 }
 
-export function useProjects(): UseProjectsReturn {
+export function useProjects(userId?: string | null): UseProjectsReturn {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!userId) {
+      setProjects([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     const unsub = subscribeProjects((p) => {
       setProjects(p);
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [userId]);
 
   const createProject = useCallback(async (name: string, userId: string, userName?: string) => {
     return createProjectFn(name, userId, userName);
