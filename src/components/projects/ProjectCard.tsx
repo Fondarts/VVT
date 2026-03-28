@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Folder, Trash2, Pencil, User } from 'lucide-react';
+import { Folder, Trash2, Pencil, User, Settings } from 'lucide-react';
 import type { Project } from '../../shared/types';
 
 interface Props {
@@ -7,9 +7,10 @@ interface Props {
   onClick: () => void;
   onDelete: () => void;
   onRename: (newName: string) => void;
+  onSettings: () => void;
 }
 
-export const ProjectCard: React.FC<Props> = ({ project, onClick, onDelete, onRename }) => {
+export const ProjectCard: React.FC<Props> = ({ project, onClick, onDelete, onRename, onSettings }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(project.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +71,14 @@ export const ProjectCard: React.FC<Props> = ({ project, onClick, onDelete, onRen
           style={{ color: 'var(--color-text-muted)', flexShrink: 0, padding: '2px' }}
         >
           <Pencil size={12} />
+        </button>
+        <button
+          className="btn btn-icon btn-sm"
+          onClick={e => { e.stopPropagation(); onSettings(); }}
+          title="Project settings"
+          style={{ color: 'var(--color-text-muted)', flexShrink: 0, padding: '2px' }}
+        >
+          <Settings size={13} />
         </button>
         <button
           className="btn btn-icon btn-sm"

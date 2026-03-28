@@ -14,14 +14,14 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Project, ProjectFolder, ProjectFile, ScanResult } from '../shared/types';
+import type { Project, ProjectFolder, ProjectFile, ScanResult, MemberRole } from '../shared/types';
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
 const PROJECTS = 'projects';
 
-export function subscribeProjects(callback: (projects: Project[]) => void): () => void {
-  const q = query(collection(db, PROJECTS));
+export function subscribeProjects(userId: string, callback: (projects: Project[]) => void): () => void {
+  const q = query(collection(db, PROJECTS), where('memberUids', 'array-contains', userId));
   return onSnapshot(q, (snap) => {
     const projects: Project[] = snap.docs.map(d => {
       const data = d.data();
@@ -32,6 +32,9 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
         createdByName: data.createdByName ?? '',
         createdAt: (data.createdAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
         updatedAt: (data.updatedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+        members: data.members ?? {},
+        memberUids: data.memberUids ?? [],
+        memberEmails: data.memberEmails ?? [],
       };
     });
     projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -42,13 +45,16 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
   });
 }
 
-export async function createProject(name: string, userId: string, userName?: string): Promise<string> {
+export async function createProject(name: string, userId: string, userName?: string, userEmail?: string): Promise<string> {
   const ref = await addDoc(collection(db, PROJECTS), {
     name,
     createdBy: userId,
     createdByName: userName ?? '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    members: { [userId]: 'owner' as MemberRole },
+    memberUids: [userId],
+    memberEmails: userEmail ? [userEmail] : [],
   });
   return ref.id;
 }
@@ -63,6 +69,69 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function touchProject(projectId: string): Promise<void> {
   await updateDoc(doc(db, PROJECTS, projectId), { updatedAt: serverTimestamp() });
+}
+
+// ── Members ─────────────────────────────────────────────────────────────────
+
+import { arrayUnion, arrayRemove } from 'firebase/firestore';
+
+export async function addProjectMember(
+  projectId: string,
+  uid: string,
+  email: string,
+  role: MemberRole,
+): Promise<void> {
+  await updateDoc(doc(db, PROJECTS, projectId), {
+    [`members.${uid}`]: role,
+    memberUids: arrayUnion(uid),
+    memberEmails: arrayUnion(email.toLowerCase()),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function removeProjectMember(projectId: string, uid: string, email: string): Promise<void> {
+  const snap = await getDoc(doc(db, PROJECTS, projectId));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  // Cannot remove the owner
+  if (data.members?.[uid] === 'owner') return;
+  const newMembers = { ...data.members };
+  delete newMembers[uid];
+  await updateDoc(doc(db, PROJECTS, projectId), {
+    members: newMembers,
+    memberUids: arrayRemove(uid),
+    memberEmails: arrayRemove(email.toLowerCase()),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateMemberRole(projectId: string, uid: string, role: MemberRole): Promise<void> {
+  // Cannot change owner role via this function
+  if (role === 'owner') return;
+  await updateDoc(doc(db, PROJECTS, projectId), {
+    [`members.${uid}`]: role,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Look up projects that include a given email as a member */
+export async function findProjectByMemberEmail(email: string): Promise<Project[]> {
+  const q = query(collection(db, PROJECTS), where('memberEmails', 'array-contains', email.toLowerCase()));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      name: data.name,
+      createdBy: data.createdBy,
+      createdByName: data.createdByName ?? '',
+      createdAt: (data.createdAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+      updatedAt: (data.updatedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+      members: data.members ?? {},
+      memberUids: data.memberUids ?? [],
+      memberEmails: data.memberEmails ?? [],
+    };
+  });
 }
 
 // ── Folders ──────────────────────────────────────────────────────────────────

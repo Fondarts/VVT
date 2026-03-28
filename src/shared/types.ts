@@ -322,6 +322,15 @@ export interface AudioLoudness {
 
 // ── Project Dashboard ────────────────────────────────────────────────────────
 
+export type MemberRole = 'owner' | 'editor' | 'viewer';
+
+export interface ProjectMember {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: MemberRole;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -329,6 +338,9 @@ export interface Project {
   createdByName: string;
   createdAt: string;
   updatedAt: string;
+  members: Record<string, MemberRole>;   // uid → role
+  memberUids: string[];                   // for Firestore array-contains query
+  memberEmails: string[];                 // for invite lookup
 }
 
 export interface ProjectFolder {

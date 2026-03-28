@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Loader2, LayoutGrid, List, Folder, Trash2, Calendar, User, Pencil } from 'lucide-react';
+import { Plus, Loader2, LayoutGrid, List, Folder, Trash2, Calendar, User, Pencil, Settings } from 'lucide-react';
 import type { Project } from '../../shared/types';
 import { ProjectCard } from './ProjectCard';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -13,6 +13,7 @@ interface Props {
   onCreate: (name: string) => void;
   onDelete: (projectId: string) => void;
   onRename: (projectId: string, newName: string) => void;
+  onSettings: (project: Project) => void;
 }
 
 const ProjectListRow: React.FC<{
@@ -20,7 +21,8 @@ const ProjectListRow: React.FC<{
   onClick: () => void;
   onDelete: () => void;
   onRename: (newName: string) => void;
-}> = ({ project, onClick, onDelete, onRename }) => {
+  onSettings: () => void;
+}> = ({ project, onClick, onDelete, onRename, onSettings }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(project.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +97,14 @@ const ProjectListRow: React.FC<{
       </span>
       <button
         className="btn btn-icon btn-sm"
+        onClick={e => { e.stopPropagation(); onSettings(); }}
+        title="Project settings"
+        style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+      >
+        <Settings size={13} />
+      </button>
+      <button
+        className="btn btn-icon btn-sm"
         onClick={e => { e.stopPropagation(); onDelete(); }}
         title="Delete project"
         style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
@@ -105,7 +115,7 @@ const ProjectListRow: React.FC<{
   );
 };
 
-export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCreate, onDelete, onRename }) => {
+export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCreate, onDelete, onRename, onSettings }) => {
   const [showCreate, setShowCreate] = useState(false);
   const [viewMode, setViewModeState] = useState<ViewMode>(() => (localStorage.getItem('projectViewMode') as ViewMode) || 'grid');
   const setViewMode = (m: ViewMode) => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
@@ -177,6 +187,7 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
                 if (window.confirm(`Delete project "${p.name}"?`)) onDelete(p.id);
               }}
               onRename={(newName) => onRename(p.id, newName)}
+              onSettings={() => onSettings(p)}
             />
           ))}
         </div>
@@ -209,6 +220,7 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
                 if (window.confirm(`Delete project "${p.name}"?`)) onDelete(p.id);
               }}
               onRename={(newName) => onRename(p.id, newName)}
+              onSettings={() => onSettings(p)}
             />
           ))}
         </div>
