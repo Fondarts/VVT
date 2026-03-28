@@ -22,6 +22,12 @@ const PROJECTS = 'projects';
 
 export function subscribeProjects(callback: (projects: Project[]) => void): () => void {
   console.log('[Firestore] subscribeProjects: setting up listener...');
+  // Diagnostic: one-shot query to compare with listener
+  getDocs(collection(db, PROJECTS)).then(snap => {
+    console.log('[Firestore] getDocs direct query:', snap.size, 'docs', snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+  }).catch(err => {
+    console.error('[Firestore] getDocs FAILED:', err.code, err.message);
+  });
   const q = query(collection(db, PROJECTS));
   return onSnapshot(q, (snap) => {
     console.log('[Firestore] subscribeProjects: got', snap.size, 'projects', snap.docs.map(d => d.data().name));
@@ -38,22 +44,28 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
     });
     projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     callback(projects);
-  }, (err) => {
-    console.error('[Firestore] subscribeProjects error:', err);
-    // Return empty list so UI doesn't hang on loading forever
+  }, (err: any) => {
+    console.error('[Firestore] subscribeProjects error:', err.code, err.message, err);
     callback([]);
   });
 }
 
 export async function createProject(name: string, userId: string, userName?: string): Promise<string> {
-  const ref = await addDoc(collection(db, PROJECTS), {
-    name,
-    createdBy: userId,
-    createdByName: userName ?? '',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-  return ref.id;
+  console.log('[Firestore] createProject:', name, userId);
+  try {
+    const ref = await addDoc(collection(db, PROJECTS), {
+      name,
+      createdBy: userId,
+      createdByName: userName ?? '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    console.log('[Firestore] createProject SUCCESS, id:', ref.id);
+    return ref.id;
+  } catch (err: any) {
+    console.error('[Firestore] createProject FAILED:', err.code, err.message);
+    throw err;
+  }
 }
 
 export async function renameProject(projectId: string, newName: string): Promise<void> {
