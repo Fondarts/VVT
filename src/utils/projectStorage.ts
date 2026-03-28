@@ -2,7 +2,7 @@ import {
   collection,
   query,
   where,
-  orderBy,
+  // orderBy,
   onSnapshot,
   addDoc,
   updateDoc,
@@ -22,7 +22,7 @@ const PROJECTS = 'projects';
 
 export function subscribeProjects(callback: (projects: Project[]) => void): () => void {
   console.log('[Firestore] subscribeProjects: setting up listener...');
-  const q = query(collection(db, PROJECTS), orderBy('updatedAt', 'desc'));
+  const q = query(collection(db, PROJECTS));
   return onSnapshot(q, (snap) => {
     console.log('[Firestore] subscribeProjects: got', snap.size, 'projects', snap.docs.map(d => d.data().name));
     const projects: Project[] = snap.docs.map(d => {
@@ -36,6 +36,7 @@ export function subscribeProjects(callback: (projects: Project[]) => void): () =
         updatedAt: (data.updatedAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
       };
     });
+    projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     callback(projects);
   }, (err) => {
     console.error('[Firestore] subscribeProjects error:', err);
