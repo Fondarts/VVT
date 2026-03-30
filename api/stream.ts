@@ -29,7 +29,10 @@ export default async function handler(req: Request): Promise<Response> {
   const driveApiKey = process.env.GOOGLE_DRIVE_API_KEY;
 
   if (!projectId || !fbApiKey || !driveApiKey) {
-    return new Response('Server misconfigured', { status: 500 });
+    return new Response(
+      `Server misconfigured: missing ${[!projectId && 'FIREBASE_PROJECT_ID', !fbApiKey && 'FIREBASE_API_KEY', !driveApiKey && 'GOOGLE_DRIVE_API_KEY'].filter(Boolean).join(', ')}`,
+      { status: 500 },
+    );
   }
 
   // ── 1. Validate share token via Firestore REST ─────────────────────────────
@@ -62,7 +65,8 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!driveRes.ok && driveRes.status !== 206) {
-    return new Response(`Drive error: ${driveRes.status}`, { status: 502 });
+    const body = await driveRes.text().catch(() => '');
+    return new Response(`Drive error ${driveRes.status}: ${body}`, { status: 502 });
   }
 
   const responseHeaders = new Headers({

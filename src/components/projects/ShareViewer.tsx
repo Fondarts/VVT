@@ -8,6 +8,8 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Link } from 'lucide-react';
+import { signInAnonymously } from 'firebase/auth';
+import { auth } from '../../firebase';
 import { FeedbackPanel } from '../FeedbackPanel';
 
 interface Props {
@@ -64,6 +66,8 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
 
   useEffect(() => {
     let cancelled = false;
+    // Sign in anonymously so FeedbackPanel can read/write Firestore comments
+    signInAnonymously(auth).catch(() => {});
     fetchShareDoc(token)
       .then(d => {
         if (cancelled) return;
