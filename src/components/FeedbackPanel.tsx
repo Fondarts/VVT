@@ -544,7 +544,7 @@ export const FeedbackPanel = React.memo<Props>(({
                 </div>
 
                 {/* Annotation indicator */}
-                {comment.annotationStrokes?.length && activeAnnotationId !== comment.id && (
+                {!!comment.annotationStrokes?.length && activeAnnotationId !== comment.id && (
                   <div style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', marginBottom: '4px', opacity: 0.7 }}>
                     ↑ click timecode to show annotation
                   </div>
