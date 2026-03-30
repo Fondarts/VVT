@@ -75,7 +75,7 @@ export type ViewMode = 'full' | 'internal' | 'presentation';
 
 const App: React.FC = () => {
   const { addToast } = useToast();
-  const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
+  const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess } = useAuth();
   const { projects: sidebarProjects } = useProjects(user?.uid);
   // Detect ?share=TOKEN (anonymous share link — bypasses auth)
   const [shareToken] = useState(() => {
@@ -658,6 +658,7 @@ const App: React.FC = () => {
                   userId={user?.uid}
                   userName={user?.displayName ?? undefined}
                   driveToken={driveToken ?? undefined}
+                  onRequestDriveWriteAccess={requestDriveWriteAccess}
                 />
               )}
               {isImage ? (

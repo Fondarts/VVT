@@ -184,6 +184,14 @@ export function useAuth() {
     }
   }, []);
 
+  /** Force re-consent with full scope — used before creating share links */
+  const requestDriveWriteAccess = useCallback(() => {
+    localStorage.removeItem(DRIVE_CONSENT_KEY);
+    if (tokenClientRef.current) {
+      tokenClientRef.current.requestAccessToken({ prompt: 'consent' });
+    }
+  }, []);
+
   /* Sign out */
   const signOut = useCallback(async () => {
     if (user?.email && window.google?.accounts?.id) {
@@ -196,5 +204,5 @@ export function useAuth() {
     setError(null);
   }, [user]);
 
-  return { user, loading, error, signIn, signOut, driveToken, requestDriveAccess };
+  return { user, loading, error, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess };
 }

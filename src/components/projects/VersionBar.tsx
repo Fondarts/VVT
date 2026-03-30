@@ -14,9 +14,10 @@ interface Props {
   userId?: string;
   userName?: string;
   driveToken?: string;
+  onRequestDriveWriteAccess?: () => void;
 }
 
-export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVersion, onCompare, onBack, hideCompare, onShareLink: _onShareLink, userId, userName, driveToken }) => {
+export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVersion, onCompare, onBack, hideCompare, onShareLink: _onShareLink, userId, userName, driveToken, onRequestDriveWriteAccess }) => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -161,6 +162,7 @@ export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVer
           userId={userId}
           userName={userName}
           driveToken={driveToken}
+          onRequestDriveWriteAccess={onRequestDriveWriteAccess}
           onClose={() => setShowShareModal(false)}
         />
       )}

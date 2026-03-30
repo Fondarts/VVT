@@ -15,6 +15,7 @@ interface Props {
   userId: string;
   userName: string;
   driveToken: string;
+  onRequestDriveWriteAccess?: () => void;
   onClose: () => void;
 }
 
@@ -39,7 +40,7 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveToken, onClose }) => {
+export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveToken, onRequestDriveWriteAccess, onClose }) => {
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -226,7 +227,24 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
             </div>
 
             {createError && (
-              <div style={{ fontSize: '0.75rem', color: '#f87171', marginBottom: '10px' }}>{createError}</div>
+              createError.includes('403') && createError.includes('scope') || createError.includes('SCOPE') || createError.includes('insufficientPermissions') || createError.includes('appNotAuthorized') ? (
+                <div style={{ marginBottom: '10px', padding: '10px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '6px' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#f87171', marginBottom: '8px' }}>
+                    Additional Google Drive permission required to create share links.
+                  </div>
+                  {onRequestDriveWriteAccess && (
+                    <button
+                      onClick={() => { setCreateError(null); onRequestDriveWriteAccess(); }}
+                      className="btn btn-primary"
+                      style={{ width: '100%', fontSize: '0.78rem', padding: '6px' }}
+                    >
+                      Grant Drive access
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.75rem', color: '#f87171', marginBottom: '10px' }}>{createError}</div>
+              )
             )}
 
             <button
