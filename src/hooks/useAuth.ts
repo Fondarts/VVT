@@ -35,7 +35,7 @@ declare global {
   }
 }
 
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive';
 const DRIVE_CONSENT_KEY = 'kissd_drive_consent_granted';
 
 /* ── Hook ──────────────────────────────────────────────────────────── */
