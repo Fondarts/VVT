@@ -34,6 +34,8 @@ interface Props {
   refreshKey?: number;
   stagedTimecode?: { start: number; end: number; strokes?: AnnotationStroke[] };
   onStagedTimecodeConsumed?: () => void;
+  /** Override the derived fileKey (used by share-link anonymous viewers) */
+  fileKeyOverride?: string;
 }
 
 
@@ -60,8 +62,9 @@ export const FeedbackPanel = React.memo<Props>(({
   refreshKey: _refreshKey,
   stagedTimecode,
   onStagedTimecodeConsumed,
+  fileKeyOverride,
 }) => {
-  const key = fileKey(fileName, fileSize);
+  const key = fileKeyOverride ?? fileKey(fileName, fileSize);
   const [comments, setComments] = useState<FeedbackComment[]>([]);
   const commentsRef = useRef<FeedbackComment[]>([]);
   const [text, setText] = useState('');

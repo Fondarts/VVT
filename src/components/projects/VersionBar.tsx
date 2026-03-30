@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, GitCompare, ArrowLeft, Share2 } from 'lucide-react';
 import type { ProjectFile } from '../../shared/types';
+import { ShareLinkModal } from './ShareLinkModal';
 
 interface Props {
   currentFile: ProjectFile;
@@ -10,12 +11,15 @@ interface Props {
   onBack: () => void;
   hideCompare?: boolean;
   onShareLink?: (url: string, mode: string) => void;
+  userId?: string;
+  userName?: string;
+  driveToken?: string;
 }
 
-export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVersion, onCompare, onBack, hideCompare, onShareLink }) => {
+export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVersion, onCompare, onBack, hideCompare, onShareLink: _onShareLink, userId, userName, driveToken }) => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
-  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const currentIdx = versions.findIndex(v => v.id === currentFile.id);
   const hasMultiple = versions.length > 1;
@@ -131,61 +135,15 @@ export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVer
         )}
 
         {/* Share button */}
-        <div style={{ position: 'relative' }}>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => setShowShareMenu(s => !s)}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px' }}
-            title="Share link"
-          >
-            <Share2 size={13} />
-            <span style={{ fontSize: '0.75rem' }}>Share</span>
-          </button>
-          {showShareMenu && (
-            <>
-              <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowShareMenu(false)} />
-              <div style={{
-                position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 100,
-                background: 'var(--color-bg-primary)', border: '1px solid var(--border-color)',
-                borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                minWidth: '200px', overflow: 'hidden',
-              }}>
-                {(['internal', 'presentation'] as const).map(mode => {
-                  const label = mode === 'internal' ? 'Internal Review' : 'Presentation';
-                  const desc = mode === 'internal' ? 'Full access — all tools & compare' : 'View-only — feedback only';
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        const params = new URLSearchParams({
-                          view: mode,
-                          project: currentFile.projectId,
-                          file: currentFile.id,
-                        });
-                        const url = `${window.location.origin}${window.location.pathname}?${params}`;
-                        navigator.clipboard.writeText(url);
-                        setShowShareMenu(false);
-                        onShareLink?.(url, label);
-                      }}
-                      style={{
-                        display: 'flex', flexDirection: 'column', gap: '2px',
-                        width: '100%', padding: '10px 14px', background: 'transparent',
-                        border: 'none', borderBottom: mode === 'internal' ? '1px solid var(--border-color)' : 'none',
-                        color: 'var(--color-text-primary)', cursor: 'pointer',
-                        textAlign: 'left', transition: 'background 0.1s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>{label}</span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{desc}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => setShowShareModal(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px' }}
+          title="Share link"
+        >
+          <Share2 size={13} />
+          <span style={{ fontSize: '0.75rem' }}>Share</span>
+        </button>
       </div>
 
       {/* Close dropdown on outside click */}
@@ -193,6 +151,17 @@ export const VersionBar: React.FC<Props> = ({ currentFile, versions, onSwitchVer
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 99 }}
           onClick={() => { setShowDropdown(false); setCompareMode(false); }}
+        />
+      )}
+
+      {/* Share link modal */}
+      {showShareModal && userId && userName && driveToken && (
+        <ShareLinkModal
+          file={currentFile}
+          userId={userId}
+          userName={userName}
+          driveToken={driveToken}
+          onClose={() => setShowShareModal(false)}
         />
       )}
     </div>

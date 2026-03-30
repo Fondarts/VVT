@@ -55,6 +55,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProjectDashboard } from './components/projects/ProjectDashboard';
 import { HelperStatus } from './components/HelperStatus';
 import { VersionBar } from './components/projects/VersionBar';
+import { ShareViewer } from './components/projects/ShareViewer';
 import { VersionCompare } from './components/projects/VersionCompare';
 import { ProjectSidebar } from './components/projects/ProjectSidebar';
 import { useProjects } from './hooks/useProjects';
@@ -76,6 +77,12 @@ const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess } = useAuth();
   const { projects: sidebarProjects } = useProjects(user?.uid);
+  // Detect ?share=TOKEN (anonymous share link — bypasses auth)
+  const [shareToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('share');
+  });
+
   // Detect share link params ONCE at init
   const [shareParams] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -384,6 +391,11 @@ const App: React.FC = () => {
   }, [videoEl, selectedFile]);
 
 
+  // Anonymous share link flow — render standalone viewer, bypass all auth
+  if (shareToken) {
+    return <ShareViewer token={shareToken} />;
+  }
+
   return (
     <div className="app">
       <BrandBackground />
@@ -643,6 +655,9 @@ const App: React.FC = () => {
                     }
                   }}
                   onShareLink={(_url, mode) => addToast(`${mode} link copied to clipboard`, 'success')}
+                  userId={user?.uid}
+                  userName={user?.displayName ?? undefined}
+                  driveToken={driveToken ?? undefined}
                 />
               )}
               {isImage ? (

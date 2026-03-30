@@ -385,3 +385,20 @@ export interface VersionGroup {
 export type ProjectNavLocation =
   | { view: 'dashboard' }
   | { view: 'project'; projectId: string; path: string };
+
+// ── Share Links ──────────────────────────────────────────────────────────────
+
+export interface ShareLink {
+  id: string;             // = the token (nanoid-style)
+  projectId: string;
+  fileId: string;         // projectFiles doc ID
+  driveFileId: string;
+  fileName: string;
+  mode: 'presentation' | 'internal';
+  createdBy: string;      // uid
+  createdByName: string;
+  createdAt: string;      // ISO
+  expiresAt: string | null;
+  disabled: boolean;
+  accessCount: number;
+}

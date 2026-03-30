@@ -60,6 +60,22 @@ export function getDriveStreamUrl(accessToken: string, fileId: string): string {
   return `http://127.0.0.1:3777/proxy-drive?fileId=${encodeURIComponent(fileId)}&token=${encodeURIComponent(accessToken)}`;
 }
 
+/** Make a Drive file readable by anyone with the link (required before creating a share link) */
+export async function setDriveFilePublicAccess(accessToken: string, fileId: string): Promise<void> {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Drive permissions failed (${res.status}): ${text}`);
+  }
+}
+
 /** Download a Drive file as a File object with correct MIME type */
 export async function downloadDriveFile(accessToken: string, fileId: string, fileName: string): Promise<File> {
   // First get file metadata for MIME type
