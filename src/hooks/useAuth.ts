@@ -36,7 +36,8 @@ declare global {
 }
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive';
-const DRIVE_CONSENT_KEY = 'kissd_drive_consent_granted';
+// v2: bumped to force re-consent after adding drive scope
+const DRIVE_CONSENT_KEY = 'kissd_drive_consent_v2';
 
 /* ── Hook ──────────────────────────────────────────────────────────── */
 export function useAuth() {
