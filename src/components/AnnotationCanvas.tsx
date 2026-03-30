@@ -4,6 +4,9 @@ import type { AnnotationStroke, AnnotationPoint } from '../shared/types';
 
 export interface AnnotationCanvasProps {
   targetEl: HTMLElement;
+  /** Override the bounding rect used for normalization and canvas positioning.
+   *  Use this when targetEl is bigger than the visible content (e.g. objectFit:contain). */
+  contentRect?: DOMRect;
   color: string;
   lineWidth: number;
   tool: 'draw' | 'text' | 'eraser';
@@ -39,10 +42,10 @@ function drawStrokes(ctx: CanvasRenderingContext2D, strokes: AnnotationStroke[],
 }
 
 export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
-  targetEl, color, lineWidth, tool, strokes, onStrokesChange,
+  targetEl, contentRect, color, lineWidth, tool, strokes, onStrokesChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rectRef = useRef<DOMRect>(targetEl.getBoundingClientRect());
+  const rectRef = useRef<DOMRect>(contentRect ?? targetEl.getBoundingClientRect());
   const [, forceUpdate] = useState(0);
   const [textInput, setTextInput] = useState<{ sx: number; sy: number; nx: number; ny: number } | null>(null);
   const [textValue, setTextValue] = useState('');
@@ -61,7 +64,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
 
   useEffect(() => {
     const update = () => {
-      rectRef.current = targetEl.getBoundingClientRect();
+      rectRef.current = contentRect ?? targetEl.getBoundingClientRect();
       forceUpdate(n => n + 1);
     };
     update();
@@ -71,7 +74,7 @@ export const AnnotationCanvas: React.FC<AnnotationCanvasProps> = ({
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [targetEl]);
+  }, [targetEl, contentRect]);
 
   // Re-render strokes onto canvas
   useEffect(() => {

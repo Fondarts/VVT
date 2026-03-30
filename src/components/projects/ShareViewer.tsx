@@ -8,11 +8,39 @@
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, Link } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { signInAnonymously } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { FeedbackPanel } from '../FeedbackPanel';
 import { AnnotationCanvas } from '../AnnotationCanvas';
 import type { AnnotationStroke } from '../../shared/types';
+
+function drawAnnotationStrokes(
+  ctx: CanvasRenderingContext2D, strokes: AnnotationStroke[], w: number, h: number,
+) {
+  ctx.clearRect(0, 0, w, h);
+  for (const s of strokes) {
+    if ((s.type === 'path' || s.type === 'eraser') && s.points && s.points.length > 1) {
+      ctx.save();
+      if (s.type === 'eraser') ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.strokeStyle = s.type === 'eraser' ? 'rgba(0,0,0,1)' : s.color;
+      ctx.lineWidth = s.lineWidth ?? 3;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.moveTo(s.points[0].x * w, s.points[0].y * h);
+      for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x * w, s.points[i].y * h);
+      ctx.stroke();
+      ctx.restore();
+    } else if (s.type === 'text' && s.text && s.x !== undefined && s.y !== undefined) {
+      const fs = Math.round((s.fontSize ?? 0.028) * h);
+      ctx.font = `bold ${fs}px sans-serif`;
+      ctx.fillStyle = s.color;
+      ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
+      ctx.fillText(s.text, s.x * w, s.y * h);
+      ctx.shadowBlur = 0;
+    }
+  }
+}
 
 interface Props {
   token: string;
@@ -89,6 +117,30 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
   const handleUndoLastStroke = useCallback(() => {
     setDrawStrokes(prev => prev.slice(0, -1));
   }, []);
+
+  // Annotation overlay display (read-only, shown when clicking a comment timecode)
+  const [annotationOverlay, setAnnotationOverlay] = useState<AnnotationStroke[] | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [overlayRect, setOverlayRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!videoEl) return;
+    const update = () => setOverlayRect(videoEl.getBoundingClientRect());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [videoEl]);
+
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas || !annotationOverlay?.length || !overlayRect) { overlayCanvasRef.current && (overlayCanvasRef.current.width = 0); return; }
+    const w = Math.round(overlayRect.width);
+    const h = Math.round(overlayRect.height);
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (ctx) drawAnnotationStrokes(ctx, annotationOverlay, w, h);
+  }, [annotationOverlay, overlayRect]);
 
   const streamUrl = `/api/stream?token=${encodeURIComponent(token)}`;
 
@@ -224,6 +276,30 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
               onStrokesChange={setDrawStrokes}
             />
           )}
+          {annotationOverlay?.length && overlayRect && !drawActive && createPortal(
+            <>
+              <canvas
+                ref={overlayCanvasRef}
+                style={{
+                  position: 'fixed', left: overlayRect.left, top: overlayRect.top,
+                  width: overlayRect.width, height: overlayRect.height,
+                  pointerEvents: 'none', zIndex: 49,
+                }}
+              />
+              <button
+                onClick={() => setAnnotationOverlay(null)}
+                style={{
+                  position: 'fixed', right: overlayRect.right - overlayRect.width + 8, top: overlayRect.top + 8,
+                  zIndex: 50, background: 'rgba(0,0,0,0.65)', border: 'none',
+                  borderRadius: '4px', color: '#fff', fontSize: '0.72rem',
+                  padding: '3px 8px', cursor: 'pointer',
+                }}
+              >
+                Hide
+              </button>
+            </>,
+            document.body,
+          )}
         </div>
         <div style={{
           width: '320px', flexShrink: 0, borderLeft: '1px solid var(--border-color)',
@@ -243,6 +319,8 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
             onCaptureDrawStrokes={handleCaptureDrawStrokes}
             onSetLineWidth={setDrawLineWidth}
             onUndoLastStroke={handleUndoLastStroke}
+            onAnnotationChange={setAnnotationOverlay}
+            onInitializeDrawStrokes={strokes => setDrawStrokes(strokes)}
           />
           </div>
         </div>

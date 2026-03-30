@@ -358,6 +358,34 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
   // Native dimensions from the <video> element — available before scan result arrives
   const [nativeWidth, setNativeWidth] = useState(0);
   const [nativeHeight, setNativeHeight] = useState(0);
+  // Actual rendered video content rect (accounts for objectFit:contain black bars)
+  const [videoContentRect, setVideoContentRect] = useState<DOMRect | undefined>(undefined);
+
+  useEffect(() => {
+    const computeContentRect = () => {
+      const video = videoRef.current;
+      const container = containerRef.current;
+      if (!video || !container || !video.videoWidth) { setVideoContentRect(undefined); return; }
+      const cr = container.getBoundingClientRect();
+      const aspect = video.videoWidth / video.videoHeight;
+      const elAspect = cr.width / cr.height;
+      let w, h, x, y;
+      if (elAspect > aspect) {
+        h = cr.height; w = h * aspect; x = cr.left + (cr.width - w) / 2; y = cr.top;
+      } else {
+        w = cr.width; h = w / aspect; x = cr.left; y = cr.top + (cr.height - h) / 2;
+      }
+      setVideoContentRect(new DOMRect(x, y, w, h));
+    };
+    window.addEventListener('resize', computeContentRect);
+    const video = videoRef.current;
+    video?.addEventListener('loadedmetadata', computeContentRect);
+    computeContentRect();
+    return () => {
+      window.removeEventListener('resize', computeContentRect);
+      video?.removeEventListener('loadedmetadata', computeContentRect);
+    };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     seekTo(ms: number) {
@@ -471,6 +499,13 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
     if (!annotationOverlay || annotationOverlay.length === 0) return;
+    // Use videoContentRect to correct for objectFit:contain black bars
+    const cr = videoContentRect;
+    const containerRect = container.getBoundingClientRect();
+    const rw = cr ? cr.width : w;
+    const rh = cr ? cr.height : h;
+    const ox = cr ? cr.left - containerRect.left : 0;
+    const oy = cr ? cr.top - containerRect.top : 0;
     for (const s of annotationOverlay) {
       if ((s.type === 'path' || s.type === 'eraser') && s.points && s.points.length > 1) {
         ctx.save();
@@ -479,20 +514,20 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
         ctx.strokeStyle = s.type === 'eraser' ? 'rgba(0,0,0,1)' : s.color;
         ctx.lineWidth = s.lineWidth ?? 3;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.moveTo(s.points[0].x * w, s.points[0].y * h);
-        for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x * w, s.points[i].y * h);
+        ctx.moveTo(s.points[0].x * rw + ox, s.points[0].y * rh + oy);
+        for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x * rw + ox, s.points[i].y * rh + oy);
         ctx.stroke();
         ctx.restore();
       } else if (s.type === 'text' && s.text && s.x !== undefined && s.y !== undefined) {
-        const fs = Math.round((s.fontSize ?? 0.028) * h);
+        const fs = Math.round((s.fontSize ?? 0.028) * rh);
         ctx.font = `bold ${fs}px sans-serif`;
         ctx.fillStyle = s.color;
         ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
-        ctx.fillText(s.text, s.x * w, s.y * h);
+        ctx.fillText(s.text, s.x * rw + ox, s.y * rh + oy);
         ctx.shadowBlur = 0;
       }
     }
-  }, [annotationOverlay]);
+  }, [annotationOverlay, videoContentRect]);
 
   // Draw overlays on canvas
   useEffect(() => {
@@ -822,6 +857,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
       {drawActive && videoRef.current && (
         <AnnotationCanvas
           targetEl={videoRef.current}
+          contentRect={videoContentRect}
           color={drawColor}
           lineWidth={drawLineWidth}
           tool={drawTool}
