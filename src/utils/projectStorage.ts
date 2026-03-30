@@ -321,6 +321,10 @@ export async function updateFileScanResult(fileId: string, scanResult: ScanResul
   await updateDoc(doc(db, FILES, fileId), { scanResult });
 }
 
+export async function updateFileDriveId(fileId: string, driveFileId: string): Promise<void> {
+  await updateDoc(doc(db, FILES, fileId), { driveFileId });
+}
+
 /** Move a file into a different version group by changing its baseName, versionTag, and versionNumber */
 export async function updateFileVersionNumber(fileId: string, versionNumber: number): Promise<void> {
   await updateDoc(doc(db, FILES, fileId), { versionNumber });

@@ -7,6 +7,8 @@ import {
   revokeShareLink,
   getShareUrl,
 } from '../../utils/shareLinks';
+import { findDriveFile } from '../../utils/driveApi';
+import { updateFileDriveId } from '../../utils/projectStorage';
 
 interface Props {
   file: ProjectFile;
@@ -43,28 +45,44 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [resolvedDriveFileId, setResolvedDriveFileId] = useState<string | undefined>(file.driveFileId);
+  const [lookingUpDrive, setLookingUpDrive] = useState(false);
 
   // New link config
   const [mode, setMode] = useState<Mode>('presentation');
   const [expiry, setExpiry] = useState<ExpiryOption>('never');
 
+  // If driveFileId is missing, try to find it in Drive automatically
+  useEffect(() => {
+    if (file.driveFileId) return;
+    setLookingUpDrive(true);
+    findDriveFile(driveToken, file.name)
+      .then(driveFile => {
+        if (driveFile) {
+          setResolvedDriveFileId(driveFile.id);
+          updateFileDriveId(file.id, driveFile.id).catch(() => {});
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLookingUpDrive(false));
+  }, [file.id, file.name, file.driveFileId, driveToken]);
+
   // Load existing links
   useEffect(() => {
-    if (!file.driveFileId) return;
     listShareLinks(file.projectId, file.id)
       .then(ls => setLinks(ls.filter(l => !l.disabled)))
       .finally(() => setLoadingLinks(false));
   }, [file.projectId, file.id]);
 
   const handleCreate = async () => {
-    if (!file.driveFileId) return;
+    if (!resolvedDriveFileId) return;
     setCreating(true);
     setCreateError(null);
     try {
       const token = await createShareLink({
         projectId: file.projectId,
         fileId: file.id,
-        driveFileId: file.driveFileId,
+        driveFileId: resolvedDriveFileId,
         fileName: file.name,
         mode,
         createdBy: userId,
@@ -76,7 +94,7 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
         id: token,
         projectId: file.projectId,
         fileId: file.id,
-        driveFileId: file.driveFileId!,
+        driveFileId: resolvedDriveFileId,
         fileName: file.name,
         mode,
         createdBy: userId,
@@ -213,19 +231,21 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
 
             <button
               onClick={handleCreate}
-              disabled={creating || !file.driveFileId}
+              disabled={creating || !resolvedDriveFileId || lookingUpDrive}
               className="btn btn-primary"
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               {creating
                 ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
-                : <><Plus size={13} /> Create link & copy</>
+                : lookingUpDrive
+                  ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Looking up Drive file...</>
+                  : <><Plus size={13} /> Create link & copy</>
               }
             </button>
 
-            {!file.driveFileId && (
+            {!lookingUpDrive && !resolvedDriveFileId && (
               <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '8px', textAlign: 'center' }}>
-                File must be synced with Google Drive to create share links.
+                File not found in Google Drive. Make sure it exists in your Drive.
               </div>
             )}
           </div>
