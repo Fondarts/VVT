@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Copy, Share2, FolderOpen } from 'lucide-react';
 import type { ProjectFile } from '../../shared/types';
+import { findDriveFile } from '../../utils/driveApi';
+import { updateFileDriveId } from '../../utils/projectStorage';
 
 const HELPER = 'http://127.0.0.1:3777';
 
@@ -9,6 +11,7 @@ interface Props {
   x: number;
   y: number;
   onClose: () => void;
+  driveToken?: string | null;
 }
 
 const MenuItem: React.FC<{
@@ -52,8 +55,9 @@ async function revealInDriveFolder(driveFileId: string, fileName: string) {
   }
 }
 
-export const FileContextMenu: React.FC<Props> = ({ file, x, y, onClose }) => {
+export const FileContextMenu: React.FC<Props> = ({ file, x, y, onClose, driveToken }) => {
   const ref = useRef<HTMLDivElement>(null);
+  const [resolvedId, setResolvedId] = useState<string | undefined>(file.driveFileId);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -65,6 +69,19 @@ export const FileContextMenu: React.FC<Props> = ({ file, x, y, onClose }) => {
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', esc); };
   }, [onClose]);
 
+  // Auto-resolve driveFileId if missing
+  useEffect(() => {
+    if (resolvedId || !driveToken) return;
+    findDriveFile(driveToken, file.name)
+      .then(driveFile => {
+        if (driveFile) {
+          setResolvedId(driveFile.id);
+          updateFileDriveId(file.id, driveFile.id).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [file.id, file.name, resolvedId, driveToken]);
+
   const menuStyle: React.CSSProperties = {
     position: 'fixed', left: x, top: y, zIndex: 10000,
     background: 'var(--color-bg-secondary)', border: '1px solid var(--border-color)',
@@ -72,7 +89,7 @@ export const FileContextMenu: React.FC<Props> = ({ file, x, y, onClose }) => {
     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
   };
 
-  const driveFileId = file.driveFileId;
+  const driveFileId = resolvedId;
   const iconMuted = { color: 'var(--color-text-muted)' };
 
   return (

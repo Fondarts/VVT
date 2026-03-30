@@ -24,9 +24,10 @@ interface Props {
   onMoveToVersion?: (fileId: string, targetBaseName: string) => void;
   onReorderVersion?: (fileId: string, newVersionNumber: number) => void;
   sortMode?: SortMode;
+  driveToken?: string | null;
 }
 
-export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion, onReorderVersion, sortMode = 'name' }) => {
+export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, onFolderClick, onFileDoubleClick, onDeleteFolder, onDeleteFile, onMoveToVersion, onReorderVersion, sortMode = 'name', driveToken }) => {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const { menu, onContextMenu, closeMenu } = useFileContextMenu();
@@ -207,7 +208,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
             )}
           </React.Fragment>
         ))}
-        {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} />}
+        {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} driveToken={driveToken} />}
       </div>
     );
   }
@@ -264,7 +265,7 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
           ))}
         </div>
       )}
-      {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} />}
+      {menu && <FileContextMenu file={menu.file} x={menu.x} y={menu.y} onClose={closeMenu} driveToken={driveToken} />}
     </div>
   );
 };

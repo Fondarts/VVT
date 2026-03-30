@@ -179,6 +179,7 @@ export const ProjectView: React.FC<Props> = ({
             versionGroups={versionGroups}
             viewMode={viewMode}
             sortMode={sortMode}
+            driveToken={driveToken}
             onFolderClick={onNavigate}
             onDeleteFolder={(folder) => {
               if (window.confirm(`Delete folder "${folder.name}" and all its contents?`)) {
