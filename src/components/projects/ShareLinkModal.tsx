@@ -20,9 +20,9 @@ type ExpiryOption = 'never' | '7d' | '30d';
 type Mode = 'presentation' | 'internal';
 
 function expiryLabel(opt: ExpiryOption) {
-  if (opt === 'never') return 'Sin vencimiento';
-  if (opt === '7d') return '7 días';
-  return '30 días';
+  if (opt === 'never') return 'No expiry';
+  if (opt === '7d') return '7 days';
+  return '30 days';
 }
 
 function expiryDate(opt: ExpiryOption): Date | null {
@@ -155,12 +155,12 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
             marginBottom: '20px',
           }}>
             <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '12px', color: 'var(--color-text-muted)' }}>
-              NUEVO LINK
+              NEW LINK
             </div>
 
             {/* Mode */}
             <div style={{ marginBottom: '10px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Modo</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Mode</div>
               <div style={{ display: 'flex', gap: '6px' }}>
                 {(['presentation', 'internal'] as Mode[]).map(m => (
                   <button
@@ -175,9 +175,9 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
                       transition: 'all 0.15s',
                     }}
                   >
-                    {m === 'presentation' ? 'Presentación' : 'Revisión interna'}
+                    {m === 'presentation' ? 'Presentation' : 'Internal review'}
                     <div style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', fontWeight: 400, marginTop: '2px' }}>
-                      {m === 'presentation' ? 'Solo video + feedback' : 'Acceso completo'}
+                      {m === 'presentation' ? 'Video + feedback only' : 'Full access'}
                     </div>
                   </button>
                 ))}
@@ -186,7 +186,7 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
 
             {/* Expiry */}
             <div style={{ marginBottom: '14px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Vencimiento</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '6px' }}>Expiry</div>
               <div style={{ display: 'flex', gap: '6px' }}>
                 {(['never', '7d', '30d'] as ExpiryOption[]).map(opt => (
                   <button
@@ -218,30 +218,30 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
             >
               {creating
-                ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Creando...</>
-                : <><Plus size={13} /> Crear link y copiar</>
+                ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
+                : <><Plus size={13} /> Create link & copy</>
               }
             </button>
 
             {!file.driveFileId && (
               <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: '8px', textAlign: 'center' }}>
-                El archivo debe estar sincronizado con Drive para crear share links.
+                File must be synced with Google Drive to create share links.
               </div>
             )}
           </div>
 
           {/* Existing links */}
           <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '10px' }}>
-            LINKS ACTIVOS
+            ACTIVE LINKS
           </div>
 
           {loadingLinks ? (
             <div style={{ textAlign: 'center', padding: '16px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
-              Cargando...
+              Loading...
             </div>
           ) : links.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '16px', color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
-              No hay links activos
+              No active links
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -262,7 +262,7 @@ export const ShareLinkModal: React.FC<Props> = ({ file, userId, userName, driveT
                         background: link.mode === 'presentation' ? 'rgba(99,102,241,0.2)' : 'rgba(225,255,28,0.12)',
                         color: link.mode === 'presentation' ? '#a5b4fc' : 'var(--color-accent)',
                       }}>
-                        {link.mode === 'presentation' ? 'PRESENTACIÓN' : 'INTERNO'}
+                        {link.mode === 'presentation' ? 'PRESENTATION' : 'INTERNAL'}
                       </span>
                       <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
                         {formatDate(link.expiresAt)}
