@@ -26,7 +26,7 @@ export async function findDriveFile(
 ): Promise<DriveFileMeta | null> {
   const q = `name='${fileName.replace(/'/g, "\\'")}'  and trashed=false`;
   const fields = 'files(id,name,mimeType,size,owners/displayName,createdTime,videoMediaMetadata,imageMediaMetadata)';
-  const url = `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=5`;
+  const url = `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`;
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -62,7 +62,7 @@ export function getDriveStreamUrl(accessToken: string, fileId: string): string {
 
 /** Make a Drive file readable by anyone with the link (required before creating a share link) */
 export async function setDriveFilePublicAccess(accessToken: string, fileId: string): Promise<void> {
-  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions`, {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions?supportsAllDrives=true`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
