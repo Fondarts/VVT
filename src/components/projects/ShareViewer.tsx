@@ -229,6 +229,7 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
           width: '320px', flexShrink: 0, borderLeft: '1px solid var(--border-color)',
           display: 'flex', flexDirection: 'column', background: 'var(--color-bg-secondary)', overflow: 'hidden',
         }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
           <FeedbackPanel
             fileName={doc.fileName}
             fileSize={0}
@@ -243,6 +244,7 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
             onSetLineWidth={setDrawLineWidth}
             onUndoLastStroke={handleUndoLastStroke}
           />
+          </div>
         </div>
       </div>
     </div>
