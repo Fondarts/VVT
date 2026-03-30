@@ -6,11 +6,13 @@
  * Presentation:      anonymous flow — reads share doc via Firestore REST,
  *                    streams video via /api/stream?token=TOKEN
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AlertCircle, Link } from 'lucide-react';
 import { signInAnonymously } from 'firebase/auth';
 import { auth } from '../../firebase';
 import { FeedbackPanel } from '../FeedbackPanel';
+import { AnnotationCanvas } from '../AnnotationCanvas';
+import type { AnnotationStroke } from '../../shared/types';
 
 interface Props {
   token: string;
@@ -61,6 +63,32 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
   const [authorName, setAuthorName] = useState('');
   const [nameSubmitted, setNameSubmitted] = useState(false);
   const [nameInput, setNameInput] = useState('');
+
+  // Drawing state
+  const [drawActive, setDrawActive] = useState(false);
+  const [drawColor, setDrawColor] = useState('#FA4900');
+  const [drawTool, setDrawTool] = useState<'draw' | 'text' | 'eraser'>('draw');
+  const [drawLineWidth, setDrawLineWidth] = useState(3);
+  const [drawStrokes, setDrawStrokes] = useState<AnnotationStroke[]>([]);
+  const drawStrokesRef = useRef<AnnotationStroke[]>([]);
+  useEffect(() => { drawStrokesRef.current = drawStrokes; }, [drawStrokes]);
+
+  const handleStartDraw = useCallback((color: string, tool: 'draw' | 'text' | 'eraser') => {
+    setDrawColor(color);
+    setDrawTool(tool);
+    setDrawActive(true);
+  }, []);
+
+  const handleCaptureDrawStrokes = useCallback((): AnnotationStroke[] => {
+    const strokes = [...drawStrokesRef.current];
+    setDrawStrokes([]);
+    setDrawActive(false);
+    return strokes;
+  }, []);
+
+  const handleUndoLastStroke = useCallback(() => {
+    setDrawStrokes(prev => prev.slice(0, -1));
+  }, []);
 
   const streamUrl = `/api/stream?token=${encodeURIComponent(token)}`;
 
@@ -186,6 +214,16 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
             style={{ maxWidth: '100%', maxHeight: '100%', outline: 'none' }}
             onTimeUpdate={() => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime); }}
           />
+          {drawActive && videoEl && (
+            <AnnotationCanvas
+              targetEl={videoEl}
+              color={drawColor}
+              lineWidth={drawLineWidth}
+              tool={drawTool}
+              strokes={drawStrokes}
+              onStrokesChange={setDrawStrokes}
+            />
+          )}
         </div>
         <div style={{
           width: '320px', flexShrink: 0, borderLeft: '1px solid var(--border-color)',
@@ -200,6 +238,10 @@ export const ShareViewer: React.FC<Props> = ({ token }) => {
             videoEl={videoEl}
             authorName={authorName}
             onSeek={s => { if (videoRef.current) videoRef.current.currentTime = s; }}
+            onStartDraw={handleStartDraw}
+            onCaptureDrawStrokes={handleCaptureDrawStrokes}
+            onSetLineWidth={setDrawLineWidth}
+            onUndoLastStroke={handleUndoLastStroke}
           />
         </div>
       </div>

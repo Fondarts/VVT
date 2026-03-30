@@ -975,6 +975,7 @@ const App: React.FC = () => {
                   <FeedbackPanel
                     fileName={selectedFile.name}
                     fileSize={selectedFile.size}
+                    fileKeyOverride={versionContext?.currentFile.id}
                     currentTime={videoCurrentTime}
                     frameRate={scanResult?.video?.frameRate ?? 0}
                     videoEl={videoEl}
