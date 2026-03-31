@@ -634,24 +634,26 @@ const App: React.FC = () => {
                       input.click();
                     }
                   }}
-                  onCompare={(a, b) => {
-                    const getSrc = (pf: ProjectFile): string | null => {
+                  onCompare={async (a, b) => {
+                    const getSrc = async (pf: ProjectFile): Promise<string | null> => {
                       const local = versionContext.getLocalFile(pf);
                       if (local) return URL.createObjectURL(local);
                       if (driveToken && pf.driveFileId) {
-                        return getDriveStreamUrl(driveToken, pf.driveFileId);
+                        try {
+                          const file = await downloadDriveFile(driveToken, pf.driveFileId, pf.name);
+                          return URL.createObjectURL(file);
+                        } catch { return null; }
                       }
                       return null;
                     };
-                    const srcA = getSrc(a);
-                    const srcB = getSrc(b);
+                    const [srcA, srcB] = await Promise.all([getSrc(a), getSrc(b)]);
                     if (srcA && srcB) {
                       setCompareState({
                         fileA: { projectFile: a, src: srcA },
                         fileB: { projectFile: b, src: srcB },
                       });
                     } else {
-                      addToast('Files not available. Import them with Drive API connected.', 'warning');
+                      addToast(driveToken ? 'Files not available.' : 'Connect Drive to compare files.', 'warning');
                     }
                   }}
                   onShareLink={(_url, mode) => addToast(`${mode} link copied to clipboard`, 'success')}
