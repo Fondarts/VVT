@@ -59,7 +59,7 @@ import { ShareViewer } from './components/projects/ShareViewer';
 import { VersionCompare } from './components/projects/VersionCompare';
 import { ProjectSidebar } from './components/projects/ProjectSidebar';
 import { useProjects } from './hooks/useProjects';
-import { getDriveStreamUrl, downloadDriveFile } from './utils/driveApi';
+import { downloadDriveFile } from './utils/driveApi';
 import { getCachedFile } from './utils/fileCache';
 import { fetchFiles, fetchFileById } from './utils/projectStorage';
 import { groupByVersion } from './utils/versionDetection';
