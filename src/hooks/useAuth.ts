@@ -22,8 +22,8 @@ interface GisAccounts {
     revoke: (hint: string, cb?: () => void) => void;
   };
   oauth2: {
-    initTokenClient: (cfg: Record<string, unknown>) => {
-      requestAccessToken: (overrides?: Record<string, unknown>) => void;
+    initCodeClient: (cfg: Record<string, unknown>) => {
+      requestCode: () => void;
     };
     hasGrantedAllScopes: (tokenResponse: unknown, scope: string) => boolean;
   };
@@ -38,17 +38,41 @@ declare global {
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive';
 // v2: bumped to force re-consent after adding drive scope
 const DRIVE_CONSENT_KEY = 'kissd_drive_consent_v2';
+// sessionStorage keys — survive page reloads in the same tab
+const SESSION_TOKEN_KEY = 'kissd_drive_token';
+const SESSION_TOKEN_EXPIRY_KEY = 'kissd_drive_token_expiry';
+
+function loadSessionToken(): string | null {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  const expiry = sessionStorage.getItem(SESSION_TOKEN_EXPIRY_KEY);
+  if (!token || !expiry) return null;
+  if (Date.now() > parseInt(expiry)) {
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
+    return null;
+  }
+  return token;
+}
+
+function saveSessionToken(token: string, expiresIn = 3600) {
+  sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+  // Store with a 2-minute buffer
+  sessionStorage.setItem(SESSION_TOKEN_EXPIRY_KEY, (Date.now() + (expiresIn - 120) * 1000).toString());
+}
+
+function clearSessionToken() {
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  sessionStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
+}
 
 /* ── Hook ──────────────────────────────────────────────────────────── */
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [driveToken, setDriveToken] = useState<string | null>(null);
+  const [driveToken, setDriveToken] = useState<string | null>(() => loadSessionToken());
   const initialized = useRef(false);
-  const tokenClientRef = useRef<{
-    requestAccessToken: (overrides?: Record<string, unknown>) => void;
-  } | null>(null);
+  const codeClientRef = useRef<{ requestCode: () => void } | null>(null);
   const silentRefreshDone = useRef(false);
   // True when sign-in was triggered by user click in THIS session
   const justSignedIn = useRef(false);
@@ -62,7 +86,7 @@ export function useAuth() {
     return unsub;
   }, []);
 
-  /* Initialize GIS (One Tap for auth + OAuth2 client for Drive) */
+  /* Initialize GIS — One Tap for Firebase auth + Code Client for Drive */
   useEffect(() => {
     async function handleCredential(response: { credential: string }) {
       try {
@@ -85,13 +109,33 @@ export function useAuth() {
       });
 
       if (window.google.accounts.oauth2) {
-        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        codeClientRef.current = window.google.accounts.oauth2.initCodeClient({
           client_id: GOOGLE_CLIENT_ID,
           scope: DRIVE_SCOPE,
-          callback: (response: { access_token?: string; error?: string }) => {
-            if (response.access_token) {
-              setDriveToken(response.access_token);
-              localStorage.setItem(DRIVE_CONSENT_KEY, '1');
+          ux_mode: 'popup',
+          callback: async (response: { code?: string; error?: string }) => {
+            if (!response.code) return;
+            try {
+              const idToken = await auth.currentUser?.getIdToken();
+              if (!idToken) return;
+              const res = await fetch('/api/drive/exchange', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({ code: response.code }),
+              });
+              if (res.ok) {
+                const data = await res.json() as { access_token?: string; expires_in?: number };
+                if (data.access_token) {
+                  setDriveToken(data.access_token);
+                  saveSessionToken(data.access_token, data.expires_in);
+                  localStorage.setItem(DRIVE_CONSENT_KEY, '1');
+                }
+              }
+            } catch (e) {
+              console.error('Drive token exchange failed:', e);
             }
           },
         });
@@ -106,33 +150,41 @@ export function useAuth() {
     return () => clearInterval(iv);
   }, []);
 
-  /* Silent Drive token refresh on reload (only if consent was previously granted).
-     prompt:'' tells GIS to skip UI if prior consent exists — no popup. */
+  /* Silent Drive token refresh on page load — fully automatic, no user gesture.
+     Calls our own API which uses the stored refresh token in Firestore. */
   useEffect(() => {
     if (!user || driveToken || silentRefreshDone.current) return;
-    if (!tokenClientRef.current) return;
     const hadConsent = localStorage.getItem(DRIVE_CONSENT_KEY);
-    if (!hadConsent) return; // Never granted — needs user gesture
+    if (!hadConsent) return; // Never granted — needs user gesture to go through consent
     silentRefreshDone.current = true;
-    try {
-      tokenClientRef.current.requestAccessToken({
-        prompt: '',
-        hint: user.email || undefined,
-      });
-    } catch { /* silent fail — Drive button is available as fallback */ }
+
+    (async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) return;
+        const res = await fetch('/api/drive/token', {
+          headers: { 'Authorization': `Bearer ${idToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json() as { access_token?: string; expires_in?: number };
+          if (data.access_token) {
+            setDriveToken(data.access_token);
+            saveSessionToken(data.access_token, data.expires_in);
+          }
+        }
+      } catch { /* silent fail — Drive button available as fallback */ }
+    })();
   }, [user, driveToken]);
 
-  /* After a fresh sign-in (user gesture), auto-request Drive token.
+  /* After a fresh sign-in (user gesture), auto-request Drive code.
      This IS from a user gesture chain so the popup won't be blocked. */
   useEffect(() => {
     if (!user || driveToken || !justSignedIn.current) return;
-    if (!tokenClientRef.current) return;
+    if (!codeClientRef.current) return;
     justSignedIn.current = false;
     // Small delay so Firebase auth settles first
     const t = setTimeout(() => {
-      tokenClientRef.current?.requestAccessToken({
-        hint: user.email || undefined,
-      });
+      codeClientRef.current?.requestCode();
     }, 300);
     return () => clearTimeout(t);
   }, [user, driveToken]);
@@ -177,18 +229,18 @@ export function useAuth() {
     });
   }, []);
 
-  /** Manually request Drive access (fallback button) */
+  /** Manually request Drive access (fallback button / first-time consent) */
   const requestDriveAccess = useCallback(() => {
-    if (tokenClientRef.current) {
-      tokenClientRef.current.requestAccessToken();
+    if (codeClientRef.current) {
+      codeClientRef.current.requestCode();
     }
   }, []);
 
-  /** Force re-consent with full scope — used before creating share links */
+  /** Force re-consent — used when Drive API returns 403 on share link creation */
   const requestDriveWriteAccess = useCallback(() => {
     localStorage.removeItem(DRIVE_CONSENT_KEY);
-    if (tokenClientRef.current) {
-      tokenClientRef.current.requestAccessToken({ prompt: 'consent' });
+    if (codeClientRef.current) {
+      codeClientRef.current.requestCode();
     }
   }, []);
 
@@ -199,6 +251,7 @@ export function useAuth() {
     }
     await fbSignOut(auth);
     setDriveToken(null);
+    clearSessionToken();
     silentRefreshDone.current = false;
     justSignedIn.current = false;
     setError(null);
