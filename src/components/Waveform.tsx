@@ -346,7 +346,7 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
   }, [videoEl, duration]);
 
   return (
-    <div className="card" style={{ padding: '10px 12px' }}>
+    <div className="card" style={{ padding: '6px 12px 4px' }}>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
         {/* Waveform */}
         <div style={{ flex: 1, minWidth: 0 }}>

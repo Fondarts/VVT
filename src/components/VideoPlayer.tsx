@@ -873,7 +873,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
           position: 'relative',
           background: '#000',
           width: '100%',
-          maxHeight: compact ? '300px' : 'calc(100vh - 440px)',
+          maxHeight: compact ? '300px' : tl ? 'calc(100vh - 444px)' : 'calc(100vh - 400px)',
           aspectRatio: (videoWidth || nativeWidth) && (videoHeight || nativeHeight)
             ? `${videoWidth || nativeWidth}/${videoHeight || nativeHeight}`
             : '16/9',
@@ -1212,9 +1212,9 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
       </div>
 
       {/* Controls */}
-      <div style={{ padding: '8px 16px 12px' }}>
+      <div style={{ padding: '6px 16px 4px' }}>
         {/* Playback row: [camera] ... [transport centered] ... [timecode] */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px', position: 'relative', minHeight: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px', position: 'relative', minHeight: '28px' }}>
           {/* Left: Snapshot */}
           <button
             className="btn btn-secondary btn-sm"

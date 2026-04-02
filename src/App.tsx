@@ -677,7 +677,7 @@ const App: React.FC = () => {
                 />
                 </ErrorBoundary>
               ) : (
-                <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden' }}>
+                <div style={{ flex: '1 1 0%', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 <ErrorBoundary fallbackLabel="Video player crashed">
                 <VideoPlayer
                   ref={videoPlayerRef}
@@ -734,12 +734,8 @@ const App: React.FC = () => {
                   } : undefined}
                 />
                 </ErrorBoundary>
-                </div>
-              )}
-
-
               {!isImage && scanResult && waveformData.length > 0 && (
-                <div style={{ flex: '0 0 auto', marginTop: '8px' }}>
+                <div style={{ flex: '0 0 auto', marginTop: '4px' }}>
                 <Waveform
                   audioData={waveformData}
                   duration={scanResult.file.duration}
@@ -747,6 +743,8 @@ const App: React.FC = () => {
                   videoEl={videoEl}
                   truePeakMax={allPresets.find(p => p.id === selectedPreset)?.truePeakMax}
                 />
+                </div>
+              )}
                 </div>
               )}
             </div>
