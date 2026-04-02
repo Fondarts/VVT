@@ -243,8 +243,7 @@ const App: React.FC = () => {
 
   /** Open a Drive file: try local cache first, then download from Drive.
       Always goes through handleFileSelected so audio, scan, and all components work. */
-  const openDriveFile = async (pf: ProjectFile, token: string, ctx?: VersionContext | null) => {
-    if (!pf.driveFileId) return;
+  const openDriveFile = async (pf: ProjectFile, token?: string | null, ctx?: VersionContext | null) => {
     setMode('single');
 
     // Build version context if not provided
@@ -272,13 +271,17 @@ const App: React.FC = () => {
     }
 
     // 2. Download from Drive API → full local File → handleFileSelected
-    try {
-      addToast('Downloading from Drive...', 'info');
-      const file = await downloadDriveFile(token, pf.driveFileId, pf.name);
-      handleFileSelected(file);
-    } catch (err) {
-      console.warn('Drive download failed:', err);
-      addToast('Download failed. Try opening from the dashboard.', 'warning');
+    if (token && pf.driveFileId) {
+      try {
+        addToast('Downloading from Drive...', 'info');
+        const file = await downloadDriveFile(token, pf.driveFileId, pf.name);
+        handleFileSelected(file);
+      } catch (err) {
+        console.warn('Drive download failed:', err);
+        addToast('Download failed. Try opening from the dashboard.', 'warning');
+      }
+    } else {
+      addToast('File not available — connect Google Drive.', 'warning');
     }
   };
 
@@ -514,13 +517,7 @@ const App: React.FC = () => {
       {user && mode !== 'projects' && !isPresentation && (
         <ProjectSidebar
           projects={sidebarProjects}
-          onFileClick={(pf) => {
-            if (driveToken && pf.driveFileId) {
-              openDriveFile(pf, driveToken);
-            } else {
-              addToast('File not available — connect Google Drive.', 'warning');
-            }
-          }}
+          onFileClick={(pf) => openDriveFile(pf, driveToken)}
         />
       )}
 
@@ -624,6 +621,8 @@ const App: React.FC = () => {
                     if (localFile) {
                       handleFileSelected(localFile);
                       setVersionContext({ ...versionContext, currentFile: pf });
+                    } else if (driveToken && pf.driveFileId) {
+                      openDriveFile(pf, driveToken, { ...versionContext, currentFile: pf });
                     } else {
                       const input = document.createElement('input');
                       input.type = 'file'; input.accept = 'video/*,image/*,audio/*';

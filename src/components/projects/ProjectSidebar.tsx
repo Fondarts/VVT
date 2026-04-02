@@ -19,9 +19,11 @@ const SidebarRow: React.FC<{
   label: string;
   badge?: string;
   onClick: () => void;
+  onChevronClick?: () => void;
+  onBadgeClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   muted?: boolean;
-}> = ({ depth, icon, chevron, label, badge, onClick, onContextMenu, muted }) => (
+}> = ({ depth, icon, chevron, label, badge, onClick, onChevronClick, onBadgeClick, onContextMenu, muted }) => (
   <button
     onClick={onClick}
     onContextMenu={onContextMenu}
@@ -36,16 +38,23 @@ const SidebarRow: React.FC<{
     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
   >
-    {chevron || <span style={{ width: '11px', flexShrink: 0 }} />}
+    {chevron ? (
+      <span onClick={onChevronClick ? (e) => { e.stopPropagation(); onChevronClick(); } : undefined} style={{ flexShrink: 0, display: 'flex' }}>
+        {chevron}
+      </span>
+    ) : <span style={{ width: '11px', flexShrink: 0 }} />}
     {icon}
     <span title={label} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
       {label}
     </span>
     {badge && (
-      <span style={{
-        background: 'var(--color-accent)', color: '#000', borderRadius: '3px',
-        padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0,
-      }}>
+      <span
+        onClick={onBadgeClick ? (e) => { e.stopPropagation(); onBadgeClick(); } : undefined}
+        style={{
+          background: 'var(--color-accent)', color: '#000', borderRadius: '3px',
+          padding: '0 4px', fontSize: '0.6rem', fontWeight: 700, flexShrink: 0,
+        }}
+      >
         {badge}
       </span>
     )}
@@ -73,10 +82,9 @@ const VersionGroupNode: React.FC<{
         }
         label={group.latest.name}
         badge={group.latest.versionTag?.toUpperCase()}
-        onClick={() => {
-          if (hasVersions) setExpanded(e => !e);
-          else onFileClick(group.latest);
-        }}
+        onClick={() => onFileClick(group.latest)}
+        onChevronClick={hasVersions ? () => setExpanded(e => !e) : undefined}
+        onBadgeClick={() => onFileClick(group.latest)}
         onContextMenu={e => onContextMenu(e, group.latest)}
         muted
       />
