@@ -3,7 +3,7 @@ import { Trash2, Plus, Film, Loader2 } from 'lucide-react';
 
 export interface TimelineBlock {
   id: string;
-  type: 'slate' | 'video' | 'black';
+  type: 'slate' | 'video' | 'black' | 'bip';
   duration: number;         // seconds
   label: string;
   thumbnail?: string;       // data URL for slate preview
@@ -11,7 +11,7 @@ export interface TimelineBlock {
 }
 
 export interface TimelinePreview {
-  blockType: 'slate' | 'video' | 'black';
+  blockType: 'slate' | 'video' | 'black' | 'bip';
   videoOffset?: number;
   thumbnail?: string;
 }
@@ -30,6 +30,7 @@ const BLOCK_COLORS: Record<TimelineBlock['type'], string> = {
   slate: '#7C3AED',
   video: '#2563EB',
   black: '#444444',
+  bip: '#E1FF1C',
 };
 
 interface Props {

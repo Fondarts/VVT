@@ -91,7 +91,7 @@ export async function uploadAsset(pngBytes: Uint8Array): Promise<string> {
 }
 
 export interface NativeExportBlock {
-  type: 'slate' | 'video' | 'black';
+  type: 'slate' | 'video' | 'black' | 'bip';
   duration: number;
   assetPath?: string; // temp path for slates (from uploadAsset)
 }
@@ -148,7 +148,7 @@ export async function getExportStatus(): Promise<HelperExportStatus> {
  */
 export async function runNativeExport(
   videoFile: File,
-  blocks: { type: 'slate' | 'video' | 'black'; duration: number; slatePng?: Uint8Array }[],
+  blocks: { type: 'slate' | 'video' | 'black' | 'bip'; duration: number; slatePng?: Uint8Array }[],
   codec: NativeExportCodec,
   onProgress: (pct: number, label: string) => void,
   subtitleBurnIn?: import('./ffmpeg').SubtitleBurnIn,

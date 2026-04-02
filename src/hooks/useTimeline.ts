@@ -99,10 +99,28 @@ export function useTimeline({
       setTlPreview(null);
     } else if (tlCurrentBlock.type === 'slate') {
       setTlPreview({ blockType: 'slate', thumbnail: tlCurrentBlock.thumbnail });
+    } else if (tlCurrentBlock.type === 'bip') {
+      setTlPreview({ blockType: 'bip' });
     } else {
       setTlPreview({ blockType: 'black' });
     }
   }, [tlCurrentBlock?.id, tlCurrentBlock?.type, tlRanges]);
+
+  // ── Play beep tone when entering a bip block ──
+  useEffect(() => {
+    if (!tlIsPlaying || !tlCurrentBlock || tlCurrentBlock.type !== 'bip') return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 1000;
+    osc.type = 'sine';
+    gain.gain.value = 0.5;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + tlCurrentBlock.duration);
+    return () => { osc.disconnect(); gain.disconnect(); ctx.close(); };
+  }, [tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type]);
 
   // ── Playback engine ──
   // rAF loop — only runs during non-video blocks
@@ -154,6 +172,15 @@ export function useTimeline({
     if (!tlIsPlaying || !tlCurrentBlock || tlCurrentBlock.type !== 'video') return;
     setTlGlobalTime(tlCurrentBlock.start + videoCurrentTime);
   }, [videoCurrentTime]);
+
+  // Video ended → advance past video block so next block plays
+  useEffect(() => {
+    if (!videoEl || !tlIsPlaying || !tlCurrentBlock || tlCurrentBlock.type !== 'video') return;
+    const blockEnd = tlCurrentBlock.end;
+    const handleEnded = () => setTlGlobalTime(blockEnd);
+    videoEl.addEventListener('ended', handleEnded);
+    return () => videoEl.removeEventListener('ended', handleEnded);
+  }, [videoEl, tlIsPlaying, tlCurrentBlock?.id, tlCurrentBlock?.type]);
 
   // ── Timeline play/pause/seek handlers ──
   const handleTlPlayPause = useCallback(() => {
@@ -259,9 +286,10 @@ export function useTimeline({
   }, [ensureVideoBlock]);
 
   const handleTlAddBip = useCallback(() => {
-    const newBlock: TimelineBlock = { id: blockId(), type: 'black', duration: 1, label: 'Bip' };
+    const fps = scanResult?.video?.frameRate || 25;
+    const newBlock: TimelineBlock = { id: blockId(), type: 'bip', duration: 1 / fps, label: 'Bip' };
     setTimelineBlocks(prev => prev.length < 2 ? ensureVideoBlock(newBlock) : [...prev, newBlock]);
-  }, [ensureVideoBlock]);
+  }, [ensureVideoBlock, scanResult]);
 
   const handleTimelineExport = useCallback(async (settings?: ExportSettings) => {
     if (!selectedFile || tlExporting) return;

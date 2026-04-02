@@ -1492,7 +1492,7 @@ export function exportSRT(segments: Array<{ from: number; to: number; text: stri
 // Builds individual MP4 clips for each block, then concatenates them.
 
 export interface ExportBlock {
-  type: 'slate' | 'video' | 'black';
+  type: 'slate' | 'video' | 'black' | 'bip';
   duration: number;
   slatePng?: Uint8Array;   // required for type 'slate'
 }
@@ -1689,13 +1689,17 @@ export async function exportTimeline(
         '-y', clipName,
       ]);
 
-    } else if (block.type === 'black') {
-      opts?.onProgress?.(basePct, `${blockLabel}: Creating black…`);
+    } else if (block.type === 'black' || block.type === 'bip') {
+      opts?.onProgress?.(basePct, `${blockLabel}: Creating ${block.type}…`);
+
+      const audioSrc = block.type === 'bip'
+        ? `sine=frequency=1000:sample_rate=48000`
+        : `anullsrc=r=48000:cl=stereo`;
 
       await ff.exec([
         '-threads', '1',
         '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}:d=${block.duration}`,
-        '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=stereo`,
+        '-f', 'lavfi', '-i', audioSrc,
         ...enc.vArgs,
         '-t', String(block.duration),
         '-pix_fmt', enc.pixFmt,

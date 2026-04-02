@@ -54,6 +54,7 @@ const TL_BLOCK_COLORS: Record<string, string> = {
   slate: '#7C3AED',
   video: '#2563EB',
   black: '#444444',
+  bip: '#E1FF1C',
 };
 
 interface VideoPlayerProps {
@@ -79,8 +80,8 @@ interface VideoPlayerProps {
   onSnapshot?: (time: number) => void;
   onTimeUpdate?: (time: number) => void;
   onVideoReady?: (el: HTMLVideoElement) => void;
-  /** Overlay to show instead of video (slate image or black) */
-  timelineOverlay?: { type: 'slate' | 'black'; thumbnail?: string } | null;
+  /** Overlay to show instead of video (slate image or black/bip) */
+  timelineOverlay?: { type: 'slate' | 'black' | 'bip'; thumbnail?: string } | null;
   /** Always-visible edit buttons */
   onAddBlack?: (duration: number) => void;
   onAddImage?: () => void;
@@ -91,7 +92,7 @@ interface VideoPlayerProps {
   exportTimelinePct?: number;
   /** Timeline integration — when set, scrubber & controls use timeline instead of raw video */
   timeline?: {
-    blocks: { id: string; type: 'slate' | 'video' | 'black'; duration: number; label: string }[];
+    blocks: { id: string; type: 'slate' | 'video' | 'black' | 'bip'; duration: number; label: string }[];
     globalTime: number;
     totalDuration: number;
     isPlaying: boolean;
@@ -176,7 +177,7 @@ const TlBlockBar: React.FC<{ tl: NonNullable<VideoPlayerProps['timeline']> }> = 
     }}>
       {tl.blocks.map((b, i) => {
         const pct = (b.duration / tl.totalDuration) * 100;
-        const label = b.type === 'video' ? 'Video' : b.type === 'slate' ? 'Slate' : 'Black';
+        const label = b.type === 'video' ? 'Video' : b.type === 'slate' ? 'Slate' : b.type === 'bip' ? 'Bip' : 'Black';
         const isDragging = dragIdx === i;
         const isDropTarget = dropIdx === i && dragIdx !== null && dragIdx !== i;
         return (
@@ -201,7 +202,7 @@ const TlBlockBar: React.FC<{ tl: NonNullable<VideoPlayerProps['timeline']> }> = 
               whiteSpace: 'nowrap',
               fontSize: '0.58rem',
               fontWeight: 600,
-              color: '#fff',
+              color: b.type === 'bip' ? '#000' : '#fff',
               gap: '3px',
               cursor: 'grab',
               opacity: isDragging ? 0.4 : 1,
@@ -467,6 +468,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
 
   // Smooth scrubber + timecode — rAF loop directly updates DOM while playing
   useEffect(() => {
+    if (tl) return; // timeline mode has its own rAF below
     if (!isPlaying) return;
     const tick = () => {
       const t = videoRef.current?.currentTime ?? 0;
@@ -477,14 +479,60 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
     };
     playheadRafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(playheadRafRef.current);
-  }, [isPlaying]);
+  }, [isPlaying, !!tl]);
+
+  // Timeline-mode smooth scrubber — rAF reads video element or interpolates for non-video blocks
+  const tlLastSnapshotRef = useRef<{ globalTime: number; timestamp: number } | null>(null);
+  useEffect(() => {
+    if (tl?.isPlaying) {
+      tlLastSnapshotRef.current = { globalTime: tl.globalTime, timestamp: performance.now() };
+    }
+  }, [tl?.globalTime, tl?.isPlaying]);
+
+  useEffect(() => {
+    if (!tl || !tl.isPlaying) return;
+    // Compute video block start offset
+    let videoBlockStart = 0;
+    for (const b of tl.blocks) {
+      if (b.type === 'video') break;
+      videoBlockStart += b.duration;
+    }
+    const tick = () => {
+      let globalT: number;
+      const video = videoRef.current;
+      if (video && !video.paused) {
+        // Video block: read from video element for smoothest updates
+        globalT = videoBlockStart + video.currentTime;
+      } else if (tlLastSnapshotRef.current) {
+        // Non-video block: interpolate from last known state update
+        const dt = (performance.now() - tlLastSnapshotRef.current.timestamp) / 1000;
+        globalT = tlLastSnapshotRef.current.globalTime + dt;
+      } else {
+        globalT = tl.globalTime;
+      }
+      globalT = Math.min(globalT, tl.totalDuration);
+      if (rangeRef.current) rangeRef.current.value = String(globalT);
+      if (timecodeRef.current) timecodeRef.current.textContent = `${fmtTC(globalT)} / ${fmtTC(tl.totalDuration)}`;
+      playheadRafRef.current = requestAnimationFrame(tick);
+    };
+    playheadRafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(playheadRafRef.current);
+  }, [tl?.isPlaying, tl?.blocks]);
 
   // Sync DOM when paused (seek buttons, frame step, scrub)
   useEffect(() => {
+    if (tl) return;
     if (isPlaying) return;
     if (rangeRef.current) rangeRef.current.value = String(currentTime);
     if (timecodeRef.current) timecodeRef.current.textContent = `${fmtTC(currentTime)} / ${fmtTC(duration)}`;
-  }, [currentTime, duration, isPlaying]);
+  }, [currentTime, duration, isPlaying, !!tl]);
+
+  // Timeline mode: sync DOM when paused/seeking
+  useEffect(() => {
+    if (!tl || tl.isPlaying) return;
+    if (rangeRef.current) rangeRef.current.value = String(tl.globalTime);
+    if (timecodeRef.current) timecodeRef.current.textContent = `${fmtTC(tl.globalTime)} / ${fmtTC(tl.totalDuration)}`;
+  }, [tl?.globalTime, tl?.isPlaying, tl?.totalDuration]);
 
   // Render annotationOverlay strokes to canvas (handles eraser via destination-out)
   useEffect(() => {
