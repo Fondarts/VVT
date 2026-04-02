@@ -638,6 +638,8 @@ const App: React.FC = () => {
                     const getSrc = async (pf: ProjectFile): Promise<string | null> => {
                       const local = versionContext.getLocalFile(pf);
                       if (local) return URL.createObjectURL(local);
+                      const cached = await getCachedFile(pf.name, pf.sizeBytes);
+                      if (cached) return URL.createObjectURL(cached);
                       if (driveToken && pf.driveFileId) {
                         try {
                           const file = await downloadDriveFile(driveToken, pf.driveFileId, pf.name);
