@@ -26,14 +26,20 @@ export const ProjectDashboard: React.FC<Props> = ({ userId, userName, userEmail,
   const { projects, loading, createProject, deleteProject, renameProject, addMember, removeMember, updateMemberRole } = useProjects(userId);
   const [settingsProject, setSettingsProject] = useState<Project | null>(null);
 
-  // Navigate to project if requested from sidebar
+  // Navigate to project/folder if requested (e.g. back from single view)
   useEffect(() => {
     const target = sessionStorage.getItem('kissd_goto_project');
     if (target) {
       sessionStorage.removeItem('kissd_goto_project');
+      const path = sessionStorage.getItem('kissd_goto_path');
+      sessionStorage.removeItem('kissd_goto_path');
       goToProject(target);
+      if (path && path !== '/') {
+        // Small delay so goToProject sets the nav first
+        setTimeout(() => goToFolder(path), 0);
+      }
     }
-  }, [goToProject]);
+  }, [goToProject, goToFolder]);
 
   const currentProject = nav.view === 'project'
     ? projects.find(p => p.id === nav.projectId)

@@ -615,7 +615,14 @@ const App: React.FC = () => {
                 <VersionBar
                   currentFile={versionContext.currentFile}
                   versions={versionContext.versions}
-                  onBack={() => { setMode('projects'); setVersionContext(null); }}
+                  onBack={() => {
+                    if (versionContext?.currentFile) {
+                      sessionStorage.setItem('kissd_goto_project', versionContext.currentFile.projectId);
+                      sessionStorage.setItem('kissd_goto_path', versionContext.currentFile.parentPath);
+                    }
+                    setMode('projects');
+                    setVersionContext(null);
+                  }}
                   onSwitchVersion={(pf) => {
                     const localFile = versionContext.getLocalFile(pf);
                     if (localFile) {
