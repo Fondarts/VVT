@@ -7,7 +7,6 @@ import {
   ScanLine,
   Loader2,
   Download,
-  Plus,
   X,
   Pencil,
   Trash2,
@@ -16,7 +15,7 @@ import {
   MessageCircle,
   HelpCircle,
 } from 'lucide-react';
-import { useAuth } from './hooks/useAuth';
+import { useAuthContext } from './contexts/AuthContext';
 import { logger } from './utils/logger';
 import type {
   ValidationCheck,
@@ -46,8 +45,7 @@ import { ExportModal } from './components/ExportModal';
 import type { TranscriptionResult, SubtitleStyle } from './shared/types';
 import { DEFAULT_SUBTITLE_STYLE } from './components/SubtitleSettingsModal';
 import { SlateCreatorCollapsible } from './components/SlateCreatorCollapsible';
-import { RuleRow } from './components/RuleRow';
-import { RULE_DEFS } from './shared/presetRules';
+import { CustomPresetModal } from './components/CustomPresetModal';
 import { useCustomPresets } from './hooks/useCustomPresets';
 import { useScan } from './hooks/useScan';
 import { useTimeline } from './hooks/useTimeline';
@@ -91,7 +89,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('kissd-error', handler);
   }, [addToast]);
 
-  const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess } = useAuth();
+  const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess } = useAuthContext();
   const { projects: sidebarProjects } = useProjects(user?.uid);
   const onboarding = useOnboarding();
   const [showHelp, setShowHelp] = useState(false);
@@ -128,10 +126,7 @@ const App: React.FC = () => {
   const presets = useCustomPresets();
   const {
     customPresets, allPresets, selectedPreset,
-    showCustomModal, setShowCustomModal, customForm, setCustomForm,
-    editingPresetId, setEditingPresetId, overwriteTarget, setOverwriteTarget,
-    handlePresetChange, saveCustomPreset, doSave, deleteCustomPreset,
-    openEditPreset, updateRule, presetToRules,
+    handlePresetChange, deleteCustomPreset, openEditPreset,
   } = presets;
 
   // Preload heavy deps in the background after the app is idle
@@ -1272,146 +1267,7 @@ const App: React.FC = () => {
       )}
 
       {/* Custom Preset Modal */}
-      {showCustomModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={e => { if (e.target === e.currentTarget) { setShowCustomModal(false); setEditingPresetId(null); } }}
-        >
-          <div
-            style={{
-              background: 'var(--color-bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '12px',
-              width: '780px',
-              maxWidth: 'calc(100vw - 32px)',
-              maxHeight: '92vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Modal header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {editingPresetId ? <Pencil size={15} style={{ color: 'var(--color-accent)' }} /> : <Plus size={15} style={{ color: 'var(--color-accent)' }} />}
-                <span style={{ fontSize: '0.95rem', fontWeight: 600 }}>
-                  {editingPresetId ? 'Edit Preset' : 'Add Custom Preset'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {/* Reset to built-in defaults when a stale custom override exists */}
-                {editingPresetId && validationPresets.some(p => p.id === editingPresetId) && (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: '0.75rem', padding: '3px 10px' }}
-                    title="Reset to built-in defaults"
-                    onClick={() => {
-                      const builtin = validationPresets.find(p => p.id === editingPresetId)!;
-                      setCustomForm({ name: builtin.name, rules: presetToRules(builtin) });
-                    }}
-                  >
-                    Reset defaults
-                  </button>
-                )}
-                <button className="btn btn-icon btn-sm" onClick={() => { setShowCustomModal(false); setEditingPresetId(null); }}>
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* Preset name */}
-            <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
-              <input
-                className="input"
-                type="text"
-                placeholder="Preset name (required)"
-                value={customForm.name}
-                onChange={e => setCustomForm(prev => ({ ...prev, name: e.target.value }))}
-                style={{ width: '100%', fontSize: '0.875rem' }}
-                autoFocus
-              />
-            </div>
-
-            {/* Column headers */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 20px', borderBottom: '1px solid var(--color-border)', flexShrink: 0, background: 'var(--color-bg-primary)' }}>
-              <div style={{ width: '24px', flexShrink: 0 }} />
-              <div style={{ width: '196px', flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>Parameter</div>
-              <div style={{ width: '148px', flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>Condition</div>
-              <div style={{ flex: 1, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>Value</div>
-            </div>
-
-            {/* Rules list */}
-            <div style={{ overflowY: 'auto', flex: 1 }}>
-              {(['File', 'Video', 'Audio'] as const).map(cat => (
-                <div key={cat}>
-                  <div style={{
-                    padding: '6px 20px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
-                    letterSpacing: '0.08em', color: 'var(--color-text-muted)',
-                    background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--color-border)',
-                    position: 'sticky', top: 0, zIndex: 1,
-                  }}>
-                    {cat}
-                  </div>
-                  {RULE_DEFS.filter(d => d.category === cat).map(def => (
-                    <RuleRow
-                      key={def.id}
-                      def={def}
-                      state={customForm.rules[def.id]}
-                      onChange={s => updateRule(def.id, s)}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-
-            {/* Footer */}
-            <div style={{ borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
-              {overwriteTarget ? (
-                <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', background: editingPresetId === overwriteTarget.id ? 'rgba(var(--color-accent-rgb,59,130,246),0.08)' : 'rgba(var(--color-warning-rgb,255,165,0),0.08)' }}>
-                  <span style={{ flex: 1, fontSize: '0.8125rem', color: 'var(--color-text-primary)' }}>
-                    {editingPresetId === overwriteTarget.id ? (
-                      <>Save changes to <strong>"{overwriteTarget.name}"</strong>?</>
-                    ) : (
-                      <><span style={{ color: 'var(--color-warning)' }}>⚠</span>{' '}Preset <strong>"{overwriteTarget.name}"</strong> already exists. Overwrite it?</>
-                    )}
-                  </span>
-                  <button className="btn btn-secondary" onClick={() => setOverwriteTarget(null)}>
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    style={editingPresetId !== overwriteTarget.id ? { background: 'var(--color-warning)', borderColor: 'var(--color-warning)' } : {}}
-                    onClick={() => doSave(overwriteTarget.id)}
-                  >
-                    {editingPresetId === overwriteTarget.id ? 'Save Changes' : 'Overwrite'}
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', padding: '14px 20px' }}>
-                  <button className="btn btn-secondary" onClick={() => { setShowCustomModal(false); setEditingPresetId(null); setOverwriteTarget(null); }}>
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={saveCustomPreset}
-                    disabled={!customForm.name.trim()}
-                  >
-                    {editingPresetId ? 'Save Changes' : 'Save Preset'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <CustomPresetModal presets={presets} />
 
       {/* Help panel */}
       {showHelp && (
