@@ -258,5 +258,22 @@ export function useAuth() {
     setError(null);
   }, [user]);
 
+  // Listen for Drive token expiration events from driveApi.ts
+  useEffect(() => {
+    const handler = () => {
+      logger.warn('[useAuth] Drive token expired — clearing and requesting re-auth');
+      setDriveToken(null);
+      clearSessionToken();
+      // Trigger re-consent after a short delay
+      setTimeout(() => {
+        if (codeClientRef.current) {
+          codeClientRef.current.requestCode();
+        }
+      }, 500);
+    };
+    window.addEventListener('kissd-drive-token-expired', handler);
+    return () => window.removeEventListener('kissd-drive-token-expired', handler);
+  }, []);
+
   return { user, loading, error, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess };
 }

@@ -16,6 +16,7 @@ import {
 import { db } from '../firebase';
 import type { Project, ProjectFolder, ProjectFile, ScanResult, MemberRole } from '../shared/types';
 import { logger } from './logger';
+import { withRetry } from './retry';
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -47,29 +48,31 @@ export function subscribeProjects(userId: string, callback: (projects: Project[]
 }
 
 export async function createProject(name: string, userId: string, userName?: string, userEmail?: string): Promise<string> {
-  const ref = await addDoc(collection(db, PROJECTS), {
-    name,
-    createdBy: userId,
-    createdByName: userName ?? '',
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    members: { [userId]: 'owner' as MemberRole },
-    memberUids: [userId],
-    memberEmails: userEmail ? [userEmail] : [],
+  return withRetry(async () => {
+    const ref = await addDoc(collection(db, PROJECTS), {
+      name,
+      createdBy: userId,
+      createdByName: userName ?? '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      members: { [userId]: 'owner' as MemberRole },
+      memberUids: [userId],
+      memberEmails: userEmail ? [userEmail] : [],
+    });
+    return ref.id;
   });
-  return ref.id;
 }
 
 export async function renameProject(projectId: string, newName: string): Promise<void> {
-  await updateDoc(doc(db, PROJECTS, projectId), { name: newName, updatedAt: serverTimestamp() });
+  await withRetry(() => updateDoc(doc(db, PROJECTS, projectId), { name: newName, updatedAt: serverTimestamp() }));
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  await deleteDoc(doc(db, PROJECTS, projectId));
+  await withRetry(() => deleteDoc(doc(db, PROJECTS, projectId)));
 }
 
 export async function touchProject(projectId: string): Promise<void> {
-  await updateDoc(doc(db, PROJECTS, projectId), { updatedAt: serverTimestamp() });
+  await withRetry(() => updateDoc(doc(db, PROJECTS, projectId), { updatedAt: serverTimestamp() }));
 }
 
 // ── Members ─────────────────────────────────────────────────────────────────
@@ -314,21 +317,23 @@ export async function addProjectFile(
   // Filter out undefined values — Firestore rejects them
   const data: Record<string, unknown> = { projectId, parentPath, ...fileData, addedBy: userId, addedByName: userName ?? '', addedAt: serverTimestamp() };
   for (const key of Object.keys(data)) { if (data[key] === undefined) delete data[key]; }
-  const ref = await addDoc(collection(db, FILES), data);
-  await touchProject(projectId);
-  return ref.id;
+  return withRetry(async () => {
+    const ref = await addDoc(collection(db, FILES), data);
+    await touchProject(projectId);
+    return ref.id;
+  });
 }
 
 export async function updateFileScanResult(fileId: string, scanResult: ScanResult): Promise<void> {
-  await updateDoc(doc(db, FILES, fileId), { scanResult });
+  await withRetry(() => updateDoc(doc(db, FILES, fileId), { scanResult }));
 }
 
 export async function updateFileDriveId(fileId: string, driveFileId: string): Promise<void> {
-  await updateDoc(doc(db, FILES, fileId), { driveFileId });
+  await withRetry(() => updateDoc(doc(db, FILES, fileId), { driveFileId }));
 }
 
 export async function updateFolderDriveId(folderId: string, driveFolderId: string): Promise<void> {
-  await updateDoc(doc(db, FOLDERS, folderId), { driveFolderId });
+  await withRetry(() => updateDoc(doc(db, FOLDERS, folderId), { driveFolderId }));
 }
 
 /** Move a file into a different version group by changing its baseName, versionTag, and versionNumber */

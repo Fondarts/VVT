@@ -9,6 +9,19 @@ import { logger } from './logger';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 
+/**
+ * Wrapper around fetch that detects 401 (token expired) and dispatches
+ * a custom event so the auth system can prompt for re-authentication.
+ */
+async function driveFetch(url: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  if (res.status === 401) {
+    logger.warn('[DriveAPI] Token expired (401) — requesting re-auth');
+    window.dispatchEvent(new CustomEvent('kissd-drive-token-expired'));
+  }
+  return res;
+}
+
 /** Search for a file in Drive by exact name. Returns file ID or null. */
 export interface DriveFileMeta {
   id: string;
@@ -30,7 +43,7 @@ export async function findDriveFile(
   const fields = 'files(id,name,mimeType,size,owners/displayName,createdTime,videoMediaMetadata,imageMediaMetadata)';
   const url = `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=5&includeItemsFromAllDrives=true&supportsAllDrives=true`;
 
-  const res = await fetch(url, {
+  const res = await driveFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
@@ -64,7 +77,7 @@ export function getDriveStreamUrl(accessToken: string, fileId: string): string {
 
 /** Make a Drive file readable by anyone with the link (required before creating a share link) */
 export async function setDriveFilePublicAccess(accessToken: string, fileId: string): Promise<void> {
-  const res = await fetch(`${DRIVE_API}/files/${fileId}/permissions?supportsAllDrives=true`, {
+  const res = await driveFetch(`${DRIVE_API}/files/${fileId}/permissions?supportsAllDrives=true`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -80,7 +93,7 @@ export async function setDriveFilePublicAccess(accessToken: string, fileId: stri
 
 /** Get parent folder IDs of a Drive file */
 export async function getDriveFileParents(accessToken: string, fileId: string): Promise<string[]> {
-  const res = await fetch(`${DRIVE_API}/files/${fileId}?fields=parents&supportsAllDrives=true`, {
+  const res = await driveFetch(`${DRIVE_API}/files/${fileId}?fields=parents&supportsAllDrives=true`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return [];
@@ -94,7 +107,7 @@ export async function listDriveFolderFiles(accessToken: string, folderId: string
   const fields = 'files(id,name,mimeType,size,owners/displayName,createdTime,videoMediaMetadata,imageMediaMetadata)';
   const url = `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&pageSize=1000&includeItemsFromAllDrives=true&supportsAllDrives=true`;
 
-  const res = await fetch(url, {
+  const res = await driveFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return [];
@@ -120,14 +133,14 @@ export async function listDriveFolderFiles(accessToken: string, folderId: string
 /** Download a Drive file as a File object with correct MIME type */
 export async function downloadDriveFile(accessToken: string, fileId: string, fileName: string): Promise<File> {
   // First get file metadata for MIME type
-  const metaRes = await fetch(`${DRIVE_API}/files/${fileId}?fields=mimeType,size`, {
+  const metaRes = await driveFetch(`${DRIVE_API}/files/${fileId}?fields=mimeType,size`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const meta = metaRes.ok ? await metaRes.json() : {};
   const mimeType = meta.mimeType || 'video/mp4';
 
   // Download the file content
-  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
+  const res = await driveFetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error(`Drive download failed: ${res.status}`);
