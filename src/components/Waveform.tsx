@@ -9,6 +9,7 @@ interface WaveformProps {
 }
 
 import { formatDuration as formatTime } from '../utils/formatTime';
+import { logger } from '../utils/logger';
 
 function dBToLinear(dB: number): number {
   return Math.pow(10, dB / 20);
@@ -67,7 +68,7 @@ export const Waveform = React.memo<WaveformProps>(({ audioData, duration, curren
         videoEl.removeEventListener('play', resume);
       };
     } catch (e) {
-      console.warn('Web Audio setup failed:', e);
+      logger.warn('Web Audio setup failed:', e);
     }
   }, [videoEl]);
 

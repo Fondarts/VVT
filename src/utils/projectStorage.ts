@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Project, ProjectFolder, ProjectFile, ScanResult, MemberRole } from '../shared/types';
+import { logger } from './logger';
 
 // ── Projects ─────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ export function subscribeProjects(userId: string, callback: (projects: Project[]
     projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     callback(projects);
   }, (err: unknown) => {
-    console.error('[Firestore] subscribeProjects error:', err);
+    logger.error('[Firestore] subscribeProjects error:', err);
     callback([]);
   });
 }
@@ -158,6 +159,7 @@ export function subscribeFolders(
         name: data.name,
         parentPath: data.parentPath,
         createdAt: (data.createdAt as Timestamp)?.toDate?.()?.toISOString() ?? '',
+        driveFolderId: data.driveFolderId ?? undefined,
       };
     });
     callback(folders.sort((a, b) => a.name.localeCompare(b.name)));
@@ -323,6 +325,10 @@ export async function updateFileScanResult(fileId: string, scanResult: ScanResul
 
 export async function updateFileDriveId(fileId: string, driveFileId: string): Promise<void> {
   await updateDoc(doc(db, FILES, fileId), { driveFileId });
+}
+
+export async function updateFolderDriveId(folderId: string, driveFolderId: string): Promise<void> {
+  await updateDoc(doc(db, FOLDERS, folderId), { driveFolderId });
 }
 
 /** Move a file into a different version group by changing its baseName, versionTag, and versionNumber */

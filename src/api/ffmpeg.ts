@@ -18,6 +18,7 @@ import type {
   AudioMetadata,
   FastStartInfo,
 } from '../shared/types';
+import { logger } from '../utils/logger';
 
 // ── Singleton FFmpeg instance ────────────────────────────────────────────────
 
@@ -755,7 +756,7 @@ export async function generateThumbnails(
       blobUrls.push(URL.createObjectURL(new Blob([data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })));
       try { await ff.deleteFile(thumbName); } catch { /* ignore */ }
     } catch (err) {
-      console.warn(`[thumbnail] frame ${i} exec failed:`, err);
+      logger.warn(`[thumbnail] frame ${i} exec failed:`, err);
     }
     onProgress?.(i + 1, thumbCount);
   }
@@ -1261,7 +1262,7 @@ async function transcodeWithWebCodecs(
     if (aSupport.supported) {
       const audioEncoder = new AudioEncoder({
         output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-        error:  (e) => console.warn('[WebCodecs] AudioEncoder error:', e),
+        error:  (e) => logger.warn('[WebCodecs] AudioEncoder error:', e),
       });
       audioEncoder.configure(acConfig);
 

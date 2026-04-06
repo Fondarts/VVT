@@ -12,7 +12,9 @@ import {
 } from '../utils/projectStorage';
 import { parseVersion, detectFileType, groupByVersion, isSupportedMedia } from '../utils/versionDetection';
 import { cacheFile, getCachedFile } from '../utils/fileCache';
-import { findDriveFile, getDriveStreamUrl } from '../utils/driveApi';
+import { findDriveFile, getDriveStreamUrl, getDriveFileParents, listDriveFolderFiles } from '../utils/driveApi';
+import { updateFileDriveId } from '../utils/projectStorage';
+import { logger } from '../utils/logger';
 
 // Global cache: files dropped in this session are kept in memory
 // so double-click can open them without re-picking
@@ -77,6 +79,96 @@ export function useProjectFiles(
   }, [projectId, parentPath]);
 
   const versionGroups = useMemo(() => groupByVersion(files), [files]);
+
+  // ── Auto-sync: discover new files from Google Drive folder ──
+  useEffect(() => {
+    if (!projectId || !driveToken || loading || files.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // 1. Find Drive folder ID — try stored value first, then discover from files
+        let driveFolderId: string | undefined;
+
+        // Check if any subfolder has driveFolderId (for nested syncs)
+        const folderWithDriveId = folders.find(f => f.driveFolderId);
+        if (folderWithDriveId) driveFolderId = folderWithDriveId.driveFolderId;
+
+        if (!driveFolderId) {
+          // Find an anchor file that already has driveFileId
+          let anchorDriveFileId = files.find(f => f.driveFileId)?.driveFileId;
+
+          // Backfill: if no file has driveFileId, search Drive by name
+          if (!anchorDriveFileId) {
+            for (const f of files) {
+              if (cancelled) return;
+              const found = await findDriveFile(driveToken, f.name);
+              if (found) {
+                anchorDriveFileId = found.id;
+                updateFileDriveId(f.id, found.id).catch(() => {});
+                break;
+              }
+            }
+          }
+
+          if (!anchorDriveFileId || cancelled) return;
+
+          // Get parent folder from Drive
+          const parents = await getDriveFileParents(driveToken, anchorDriveFileId);
+          if (cancelled || parents.length === 0) return;
+          driveFolderId = parents[0];
+
+          // Persist driveFolderId on the current ProjectFolder for future syncs
+          // Note: folders state contains subfolders, so we need to find by path
+          // We query Firestore directly since the current folder isn't in the subfolders list
+        }
+
+        if (!driveFolderId || cancelled) return;
+
+        // List all files in the Drive folder
+        const driveFiles = await listDriveFolderFiles(driveToken, driveFolderId);
+        if (cancelled) return;
+
+        // Find files in Drive but not in Firestore
+        const existingNames = new Set(files.map(f => f.name));
+        const newDriveFiles = driveFiles.filter(df =>
+          !existingNames.has(df.name) && isSupportedMedia(df.name)
+        );
+
+        if (newDriveFiles.length === 0) return;
+
+        // Add new files to Firestore (metadata only — downloaded on open)
+        for (const df of newDriveFiles) {
+          if (cancelled) return;
+          const ext = df.name.split('.').pop()?.toLowerCase() ?? '';
+          const { baseName, versionTag, versionNumber } = parseVersion(df.name);
+          const type = detectFileType(df.name);
+          const sizeBytes = df.size ? parseInt(df.size, 10) : 0;
+
+          await addProjectFile(projectId, parentPath, {
+            name: df.name,
+            baseName,
+            versionTag,
+            versionNumber,
+            type,
+            extension: ext,
+            sizeBytes,
+            scanResult: null,
+            driveFileId: df.id,
+            driveCreatedTime: df.createdTime,
+            driveWidth: df.width,
+            driveHeight: df.height,
+            driveDurationMs: df.durationMs,
+          }, 'system', df.ownerName);
+        }
+      } catch (err) {
+        logger.warn('[DriveSync] Auto-sync failed:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [projectId, parentPath, driveToken, loading]);
 
   const addFiles = useCallback(async (
     droppedFiles: File[],

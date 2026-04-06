@@ -1,3 +1,5 @@
+import { logger } from './logger';
+
 /**
  * Persistent file cache using Origin Private File System (OPFS).
  * Stores dropped files so they survive page refreshes.
@@ -26,7 +28,7 @@ export async function cacheFile(file: File): Promise<void> {
     await writable.write(file);
     await writable.close();
   } catch (e) {
-    console.warn('[fileCache] Failed to cache file:', e);
+    logger.warn('[fileCache] Failed to cache file:', e);
   }
 }
 

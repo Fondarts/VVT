@@ -6,6 +6,7 @@ import type { ExportCodecConfig, SubtitleBurnIn } from '../api/ffmpeg';
 import type { ExportSettings } from '../components/ExportModal';
 import type { VideoPlayerHandle } from '../components/VideoPlayer';
 import type { ScanResult, TranscriptionResult, SubtitleStyle } from '../shared/types';
+import { logger } from '../utils/logger';
 
 export interface UseTimelineParams {
   videoEl: HTMLVideoElement | null;
@@ -341,7 +342,7 @@ export function useTimeline({
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Timeline export failed:', err);
+      logger.error('Timeline export failed:', err);
       setTlExportLabel(`Error: ${err instanceof Error ? err.message : 'unknown'}`);
     } finally {
       setTlExporting(false);

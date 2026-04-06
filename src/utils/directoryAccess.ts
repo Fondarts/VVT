@@ -11,6 +11,8 @@
  * Supported: Chrome 86+, Edge 86+. Not supported in Firefox/Safari.
  */
 
+import { logger } from './logger';
+
 const DB_NAME = 'kissd-fs';
 const STORE_NAME = 'handles';
 const KEY = 'rootDir';
@@ -93,7 +95,7 @@ export async function findFileInDirectory(
         try {
           return await entry.getFile();
         } catch (e) {
-          console.warn(`[DirectoryAccess] Could not read file ${fileName}:`, e);
+          logger.warn(`[DirectoryAccess] Could not read file ${fileName}:`, e);
         }
       }
       if (entry.kind === 'directory') {

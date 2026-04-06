@@ -3,6 +3,7 @@ import type { ValidationPreset, ResolutionPreset } from '../shared/types';
 import { validationPresets } from '../shared/presets';
 import { makeDefaultRules, defaultForm } from '../shared/presetRules';
 import type { RuleState, CustomPresetForm } from '../shared/presetRules';
+import { logger } from '../utils/logger';
 
 export interface UseCustomPresetsReturn {
   customPresets: ValidationPreset[];
@@ -36,7 +37,7 @@ export function useCustomPresets(): UseCustomPresetsReturn {
     try {
       localStorage.setItem('customPresets', JSON.stringify(customPresets));
     } catch (e) {
-      console.warn('Failed to save presets to localStorage:', e);
+      logger.warn('Failed to save presets to localStorage:', e);
     }
   }, [customPresets]);
 

@@ -17,6 +17,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
+import { logger } from './utils/logger';
 import type {
   ValidationCheck,
   ValidationReport,
@@ -79,6 +80,17 @@ export type ViewMode = 'full' | 'internal' | 'presentation';
 
 const App: React.FC = () => {
   const { addToast } = useToast();
+
+  // Listen for unhandled promise rejections surfaced by main.tsx
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail;
+      addToast(msg, 'error');
+    };
+    window.addEventListener('kissd-error', handler);
+    return () => window.removeEventListener('kissd-error', handler);
+  }, [addToast]);
+
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess } = useAuth();
   const { projects: sidebarProjects } = useProjects(user?.uid);
   const onboarding = useOnboarding();
@@ -382,10 +394,10 @@ const App: React.FC = () => {
     });
   }, [driveToken, shareParams]);
 
-  const handleFileSelected = (file: File) => {
-    if (videoSrc) URL.revokeObjectURL(videoSrc);
-    thumbnails.forEach(t => { if (t.startsWith('blob:')) URL.revokeObjectURL(t); });
-    if (transcodedVideoSrc) URL.revokeObjectURL(transcodedVideoSrc);
+  const handleFileSelected = useCallback((file: File) => {
+    if (videoSrcRef.current) URL.revokeObjectURL(videoSrcRef.current);
+    thumbnailsRef.current.forEach(t => { if (t.startsWith('blob:')) URL.revokeObjectURL(t); });
+    if (transcodedVideoSrcRef.current) URL.revokeObjectURL(transcodedVideoSrcRef.current);
 
     const fileIsImage = file.type.startsWith('image/');
     setIsImage(fileIsImage);
@@ -406,7 +418,7 @@ const App: React.FC = () => {
     } else {
       handleScan(file);
     }
-  };
+  }, [resetScanState, resetFeedback, handleImageScan, handleScan]);
 
   /** Open a Drive file: try local cache first, then download from Drive.
       Always goes through handleFileSelected so audio, scan, and all components work. */
@@ -444,7 +456,7 @@ const App: React.FC = () => {
         const file = await downloadDriveFile(token, pf.driveFileId, pf.name);
         handleFileSelected(file);
       } catch (err) {
-        console.warn('Drive download failed:', err);
+        logger.warn('Drive download failed:', err);
         addToast('Download failed. Try opening from the dashboard.', 'warning');
       }
     } else {
@@ -452,10 +464,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFileSelected(file);
-  };
+  }, [handleFileSelected]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -473,7 +485,7 @@ const App: React.FC = () => {
     if (file && (file.type.startsWith('video/') || file.type.startsWith('image/'))) {
       handleFileSelected(file);
     }
-  }, [videoSrc, thumbnails]);
+  }, [handleFileSelected]);
 
   // Re-run validation whenever scanResult or selectedPreset changes
   useEffect(() => {
@@ -494,7 +506,7 @@ const App: React.FC = () => {
   }, [scanResult, selectedPreset, customPresets, contrastChecks]);
 
 
-  const buildReport = (): ValidationReport => ({
+  const buildReport = useCallback((): ValidationReport => ({
     timestamp: new Date().toISOString(),
     presetUsed: selectedPreset,
     result: validationResult || 'COMPLIANT',
@@ -506,9 +518,9 @@ const App: React.FC = () => {
     audioWaveform: waveformData,
     outputFolder: '',
     transcription,
-  });
+  }), [selectedPreset, validationResult, scanResult, checks, contrastChecks, thumbnails, waveformData, transcription]);
 
-  const handleExportPDF = async () => {
+  const handleExportPDF = useCallback(async () => {
     if (!scanResult) return;
     try {
       const name = scanResult.file.name.replace(/\.[^.]+$/, '');
@@ -517,9 +529,9 @@ const App: React.FC = () => {
     } catch (err) {
       addToast(`PDF export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
     }
-  };
+  }, [scanResult, buildReport, addToast]);
 
-  const handleExportJSON = async () => {
+  const handleExportJSON = useCallback(async () => {
     if (!scanResult) return;
     try {
       const name = scanResult.file.name.replace(/\.[^.]+$/, '');
@@ -528,9 +540,9 @@ const App: React.FC = () => {
     } catch (err) {
       addToast(`JSON export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
     }
-  };
+  }, [scanResult, buildReport, addToast]);
 
-  const handleSaveThumbnails = () => {
+  const handleSaveThumbnails = useCallback(() => {
     thumbnails.forEach((thumb, index) => {
       const a = document.createElement('a');
       a.href = thumb;
@@ -538,11 +550,11 @@ const App: React.FC = () => {
       a.click();
     });
     addToast(`${thumbnails.length} thumbnails saved`, 'success');
-  };
+  }, [thumbnails, addToast]);
 
-  const handleContrastCheck = (newChecks: ContrastCheck[]) => {
+  const handleContrastCheck = useCallback((newChecks: ContrastCheck[]) => {
     setContrastChecks(newChecks);
-  };
+  }, []);
 
 
 

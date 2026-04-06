@@ -7,6 +7,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { auth, GOOGLE_CLIENT_ID } from '../firebase';
+import { logger } from '../utils/logger';
 
 /* ── Google Identity Services (GIS) type shims ─────────────────────── */
 interface GisNotification {
@@ -94,7 +95,7 @@ export function useAuth() {
         await signInWithCredential(auth, cred);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('signInWithCredential failed:', msg);
+        logger.error('signInWithCredential failed:', msg);
         setError(msg);
       }
     }
@@ -135,7 +136,7 @@ export function useAuth() {
                 }
               }
             } catch (e) {
-              console.error('Drive token exchange failed:', e);
+              logger.error('Drive token exchange failed:', e);
             }
           },
         });
