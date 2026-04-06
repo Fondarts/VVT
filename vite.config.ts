@@ -20,6 +20,19 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'credentialless',
       // Allow cross-origin workers (e.g. internal @ffmpeg/ffmpeg chunk) to importScripts() our files
       'Cross-Origin-Resource-Policy': 'cross-origin',
+      // Content Security Policy
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' accounts.google.com apis.google.com",
+        "style-src 'self' 'unsafe-inline' accounts.google.com",
+        "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://huggingface.co https://cdn-lfs.huggingface.co http://127.0.0.1:3777 ws://localhost:* wss://localhost:*",
+        "img-src 'self' blob: data: https://*.googleusercontent.com",
+        "media-src 'self' blob: http://127.0.0.1:3777",
+        "worker-src 'self' blob:",
+        "child-src 'self' blob:",
+        "frame-src accounts.google.com",
+        "font-src 'self'",
+      ].join('; '),
     },
   },
   build: {
