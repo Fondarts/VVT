@@ -1333,6 +1333,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
         {/* Overlay controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <select
+            name="overlay-preset"
             value={selectedOverlay}
             onChange={e => setSelectedOverlay(e.target.value)}
             style={{

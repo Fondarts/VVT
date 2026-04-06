@@ -300,6 +300,7 @@ export const FeedbackPanel = React.memo<Props>(({
           <input
             className="input"
             type="text"
+            name="feedback-comment"
             placeholder="Add a comment…"
             value={showForm ? '' : text}
             onChange={e => setText(e.target.value)}
