@@ -23,7 +23,7 @@ export default defineConfig({
       // Content Security Policy
       'Content-Security-Policy': [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' accounts.google.com apis.google.com",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: accounts.google.com apis.google.com",
         "style-src 'self' 'unsafe-inline' accounts.google.com",
         "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://huggingface.co https://cdn-lfs.huggingface.co http://127.0.0.1:3777 ws://localhost:* wss://localhost:*",
         "img-src 'self' blob: data: https://*.googleusercontent.com",
