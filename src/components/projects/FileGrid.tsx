@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { FileVideo, Image as ImageIcon, Music, Folder, Trash2 } from 'lucide-react';
+import { FileVideo, Image as ImageIcon, Music, Folder, Trash2, Upload } from 'lucide-react';
 import type { VersionGroup, ProjectFolder, ProjectFile } from '../../shared/types';
 import { FileCard, FolderCard } from './FileCard';
 import { VersionHistory } from './VersionHistory';
@@ -72,7 +72,13 @@ export const FileGrid: React.FC<Props> = ({ folders, versionGroups, viewMode, on
   };
 
   if (isEmpty) {
-    return null;
+    return (
+      <div className="empty-state">
+        <Upload size={40} className="empty-state-icon" />
+        <div className="empty-state-title">This folder is empty</div>
+        <div className="empty-state-desc">Drag & drop files here or use the + button to upload videos and images.</div>
+      </div>
+    );
   }
 
   if (viewMode === 'list') {

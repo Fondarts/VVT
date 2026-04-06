@@ -121,7 +121,7 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
   const setViewMode = (m: ViewMode) => { setViewModeState(m); localStorage.setItem('projectViewMode', m); };
 
   return (
-    <>
+    <div id="project-browser">
       {showCreate && (
         <CreateProjectModal
           onConfirm={name => { onCreate(name); setShowCreate(false); }}
@@ -166,8 +166,10 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
           Loading projects...
         </div>
       ) : projects.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 16px', color: 'var(--color-text-muted)' }}>
-          <p style={{ fontSize: '0.875rem', marginBottom: '12px' }}>No projects yet</p>
+        <div className="empty-state">
+          <Folder size={40} className="empty-state-icon" />
+          <div className="empty-state-title">No projects yet</div>
+          <div className="empty-state-desc">Create a project to organize your files, manage versions, and collaborate with your team.</div>
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
             <Plus size={16} /> Create your first project
           </button>
@@ -225,6 +227,6 @@ export const ProjectGrid: React.FC<Props> = ({ projects, loading, onOpen, onCrea
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 };

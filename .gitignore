@@ -52,5 +52,9 @@ TEST/
 # Large FFmpeg WASM multithreaded core (local only)
 public/ffmpeg-core-mt/
 
+# Demo video for onboarding (local only)
+public/demo/
+
 # WEB/ subdirectory (kept for dev, not tracked on this branch)
 WEB/
+.vercel

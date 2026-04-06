@@ -37,11 +37,16 @@ export const BatchDropZone: React.FC<BatchDropZoneProps> = ({ onFiles, compact =
         onDrop={e => { e.preventDefault(); setIsDragOver(false); handleFiles(e.dataTransfer.files); }}
         style={compact ? { padding: '12px 20px', marginBottom: 12 } : { marginBottom: 12 }}
       >
-        <FileVideo size={compact ? 24 : 40} />
-        {!compact && <h3>Drop multiple video files</h3>}
-        <p style={{ fontSize: '0.8rem' }}>
-          {compact ? 'Add more files' : 'Click or drag and drop — up to 2 will scan simultaneously'}
+        <FileVideo size={compact ? 24 : 40} style={compact ? undefined : { opacity: 0.4 }} />
+        {!compact && <h3 style={{ margin: '8px 0 4px' }}>Drop multiple video files here</h3>}
+        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+          {compact ? 'Add more files' : 'Click or drag and drop to add files. Up to 2 will scan simultaneously.'}
         </p>
+        {!compact && (
+          <p style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', opacity: 0.7, marginTop: '4px' }}>
+            MP4, MOV, MKV, WebM, AVI, MXF and more
+          </p>
+        )}
       </div>
     </>
   );

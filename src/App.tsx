@@ -14,6 +14,7 @@ import {
   RotateCcw,
   LogOut,
   MessageCircle,
+  HelpCircle,
 } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import type {
@@ -58,6 +59,9 @@ import { VersionBar } from './components/projects/VersionBar';
 import { ShareViewer } from './components/projects/ShareViewer';
 import { VersionCompare } from './components/projects/VersionCompare';
 import { ProjectSidebar } from './components/projects/ProjectSidebar';
+import { HelpPanel } from './components/HelpPanel';
+import { Tooltip } from './components/Tooltip';
+import { useOnboarding } from './hooks/useOnboarding';
 import { useProjects } from './hooks/useProjects';
 import { downloadDriveFile } from './utils/driveApi';
 import { getCachedFile } from './utils/fileCache';
@@ -77,6 +81,8 @@ const App: React.FC = () => {
   const { addToast } = useToast();
   const { user, loading: authLoading, error: authError, signIn, signOut, driveToken, requestDriveAccess, requestDriveWriteAccess } = useAuth();
   const { projects: sidebarProjects } = useProjects(user?.uid);
+  const onboarding = useOnboarding();
+  const [showHelp, setShowHelp] = useState(false);
   // Detect ?share=TOKEN (anonymous share link — bypasses auth)
   const [shareToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -129,6 +135,156 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Start onboarding on first visit (once auth finishes loading)
+  useEffect(() => {
+    if (!authLoading && !shareToken && !isShareLink) {
+      onboarding.startIfNew();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
+
+  // Onboarding demo state — refs to survive re-renders
+  const onboardingDemoLoaded = useRef(false);
+  const demoBlobRef = useRef<File | null>(null);
+
+  const setScanResultRef = useRef<typeof setScanResult>(() => {});
+
+  const handleOnboardingAction = useCallback((action: string) => {
+    switch (action) {
+      case 'preload-demo': {
+        if (!onboardingDemoLoaded.current) {
+          fetch('/demo/demo.mp4')
+            .then(r => r.blob())
+            .then(blob => {
+              demoBlobRef.current = new File([blob], 'Demo-Video.mp4', { type: 'video/mp4' });
+            })
+            .catch(() => { /* demo not available */ });
+        }
+        break;
+      }
+      case 'show-player': {
+        setMode('single');
+        const file = demoBlobRef.current;
+        if (file && !onboardingDemoLoaded.current) {
+          onboardingDemoLoaded.current = true;
+          const url = URL.createObjectURL(file);
+          setTimeout(() => {
+            setSelectedFile(file);
+            setIsImage(false);
+            setVideoSrc(url);
+            // Inject dummy scan result so Specs & Tools tabs have content
+            setScanResultRef.current({
+              file: {
+                name: 'Demo-Video.mp4', path: '', extension: 'mp4',
+                sizeBytes: 33621982, sizeFormatted: '32.1 MB',
+                duration: 30.03, durationFormatted: '00:00:30:01',
+                container: 'MPEG-4', format: 'MPEG-4', width: 1920, height: 1080,
+                creationDate: '2026-01-09', formatProfile: 'Base Media / Version 2',
+              },
+              video: {
+                codec: 'H.264', profile: 'High', width: 1920, height: 1080,
+                frameRate: 29.97, frameRateFormatted: '29.97 fps',
+                bitRate: 8500000, bitRateFormatted: '8.5 Mbps',
+                bitDepth: 8, colorSpace: 'BT.709', colorRange: 'Limited',
+                colorPrimaries: 'BT.709', colorTransfer: 'BT.709',
+                chromaSubsampling: '4:2:0', scanType: 'Progressive',
+                displayAspectRatio: '16:9', frameRateMode: 'Constant',
+              },
+              audio: {
+                codec: 'AAC', sampleRate: 48000, channels: 2,
+                channelLayout: 'L R', bitRate: 320000, bitDepth: 16,
+                lufs: -23.1, truePeak: -1.2,
+              },
+              fastStart: { enabled: true, moovAt: 36 },
+            });
+            // Generate dummy waveform (~400 points simulating audio peaks)
+            const wf: number[] = [];
+            for (let i = 0; i < 400; i++) {
+              const t = i / 400;
+              // Simulate quiet intro, loud middle, fade out
+              const envelope = t < 0.05 ? t / 0.05
+                : t < 0.85 ? 1
+                : (1 - t) / 0.15;
+              wf.push(envelope * (0.3 + 0.7 * Math.abs(Math.sin(i * 0.17) * Math.cos(i * 0.31))));
+            }
+            setWaveformDataRef.current(wf);
+
+            // Inject dummy timeline blocks (slate + black + video)
+            setTimelineBlocksRef.current([
+              { id: 'demo-slate', type: 'slate', duration: 5, label: 'Slate' },
+              { id: 'demo-black', type: 'black', duration: 2, label: 'Black' },
+              { id: 'demo-video', type: 'video', duration: 30.03, label: 'Demo-Video.mp4' },
+            ]);
+
+            // Generate dummy thumbnails from the demo video
+            const vid = document.createElement('video');
+            vid.muted = true;
+            vid.preload = 'auto';
+            vid.src = url;
+            vid.addEventListener('loadeddata', () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = 320;
+              canvas.height = 180;
+              const ctx = canvas.getContext('2d')!;
+              const times = [1, 4, 8, 12, 16, 20, 24, 28];
+              const thumbs: string[] = [];
+              let idx = 0;
+              const captureNext = () => {
+                if (idx >= times.length) {
+                  setThumbnailsRef.current(thumbs);
+                  vid.remove();
+                  return;
+                }
+                vid.currentTime = times[idx];
+              };
+              vid.addEventListener('seeked', () => {
+                ctx.drawImage(vid, 0, 0, 320, 180);
+                thumbs.push(canvas.toDataURL('image/jpeg', 0.7));
+                idx++;
+                captureNext();
+              });
+              captureNext();
+            });
+          }, 100);
+        }
+        break;
+      }
+      case 'show-projects':
+        setMode('projects');
+        break;
+      case 'show-feedback':
+        setMode('single');
+        setTimeout(() => setActiveRightTab('feedback'), 50);
+        break;
+      case 'show-specs':
+        setMode('single');
+        setTimeout(() => {
+          setActiveRightTab('specs');
+          handlePresetChangeRef.current('broadcast-hd');
+        }, 50);
+        break;
+      case 'show-tools':
+        setMode('single');
+        setTimeout(() => setActiveRightTab('tools'), 50);
+        break;
+      case 'show-helper':
+        setMode('single');
+        break;
+      case 'show-export':
+        setMode('single');
+        setTimeout(() => setActiveRightTab('specs'), 50);
+        break;
+      case 'cleanup':
+        break;
+    }
+  }, []);
+
+  // Expose action handler to the standalone OnboardingHost
+  useEffect(() => {
+    window.__kissdOnboardingAction = handleOnboardingAction;
+    return () => { delete window.__kissdOnboardingAction; };
+  }, [handleOnboardingAction]);
+
   const batch = useBatch(selectedPreset, allPresets);
 
   const selectedFileRef = useRef<File | null>(null);
@@ -140,11 +296,21 @@ const App: React.FC = () => {
   }, []);
   const scan = useScan(selectedFileRef, onVideoSrcReplace);
   const {
-    scanning, scanProgress, scanStatus, scanResult,
-    error, thumbnails, waveformData,
+    scanning, scanProgress, scanStatus, scanResult, setScanResult,
+    error, thumbnails, setThumbnails, waveformData, setWaveformData,
     isTranscoding, transcodeProgress, transcodeError, transcodedVideoSrc,
     handleScan, handleImageScan, resetScanState,
   } = scan;
+
+  // Keep refs current for onboarding action handler
+  setScanResultRef.current = setScanResult;
+  const setWaveformDataRef = useRef(setWaveformData);
+  setWaveformDataRef.current = setWaveformData;
+  const handlePresetChangeRef = useRef(handlePresetChange);
+  handlePresetChangeRef.current = handlePresetChange;
+  const setThumbnailsRef = useRef(setThumbnails);
+  setThumbnailsRef.current = setThumbnails;
+  const setTimelineBlocksRef = useRef<React.Dispatch<React.SetStateAction<import('./components/EditTimeline').TimelineBlock[]>>>(() => {});
 
   const [checks, setChecks] = useState<ValidationCheck[]>([]);
   const [validationResult, setValidationResult] = useState<'COMPLIANT' | 'NON-COMPLIANT' | 'WARNINGS' | null>(null);
@@ -169,6 +335,7 @@ const App: React.FC = () => {
     tlRanges, handleAddSlateBlock, handleTimelineExport,
     handleTlPlayPause, handleTlSeek, handleTlAddBlack, handleTlAddImage, handleTlAddBip,
   } = timeline;
+  setTimelineBlocksRef.current = setTimelineBlocks;
   const feedback = useFeedback(selectedFile, videoPlayerRef, setActiveRightTab);
   const {
     feedbackCount, setFeedbackCount, feedbackMarkers, setFeedbackMarkers,
@@ -484,8 +651,18 @@ const App: React.FC = () => {
             </>
           )}
 
-          {/* Auth button */}
+          {/* Auth + Help */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {/* Help button */}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowHelp(true)}
+              aria-label="Help"
+              title="Help & documentation"
+              style={{ padding: '4px 6px', flexShrink: 0 }}
+            >
+              <HelpCircle size={14} />
+            </button>
             {authLoading ? null : user ? (
               <>
                 {user.photoURL && (
@@ -495,9 +672,11 @@ const App: React.FC = () => {
                   {user.displayName || user.email}
                 </span>
                 {!driveToken && (
-                  <button className="btn btn-primary btn-sm" onClick={requestDriveAccess} title="Connect Google Drive for file streaming" style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
-                    Drive
-                  </button>
+                  <Tooltip content="Connect Google Drive to stream files without downloading" position="bottom">
+                    <button className="btn btn-primary btn-sm" onClick={requestDriveAccess} style={{ padding: '4px 8px', fontSize: '0.7rem' }}>
+                      Drive
+                    </button>
+                  </Tooltip>
                 )}
                 <button className="btn btn-secondary btn-sm" onClick={signOut} title="Sign out" style={{ padding: '4px 6px' }}>
                   <LogOut size={14} />
@@ -756,7 +935,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Right column — always visible once a video is loaded */}
-            <div className="results-column" style={{ height: 'calc(100vh - 130px)', overflowY: 'auto', position: 'sticky', top: 0 }}>
+            <div id="right-panel" className="results-column" style={{ height: 'calc(100vh - 130px)', overflowY: 'auto', position: 'sticky', top: 0 }}>
               {/* Tab nav */}
               <div className="tab-nav" role="tablist" aria-label="Content panels" style={{ flexShrink: 0, position: 'sticky', top: 0, zIndex: 10 }}>
                 <button
@@ -914,19 +1093,25 @@ const App: React.FC = () => {
                       />
 
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <button className="btn btn-primary" onClick={handleExportPDF}>
-                          <Download size={16} />
-                          Export PDF
-                        </button>
-                        <button className="btn btn-secondary" onClick={handleExportJSON}>
-                          <FileText size={16} />
-                          Export JSON
-                        </button>
-                        {thumbnails.length > 0 && (
-                          <button className="btn btn-secondary" onClick={handleSaveThumbnails}>
+                        <Tooltip content="Download a full validation report as PDF" position="bottom">
+                          <button className="btn btn-primary" onClick={handleExportPDF}>
                             <Download size={16} />
-                            Save Thumbnails
+                            Export PDF
                           </button>
+                        </Tooltip>
+                        <Tooltip content="Download raw scan data and checks as JSON" position="bottom">
+                          <button className="btn btn-secondary" onClick={handleExportJSON}>
+                            <FileText size={16} />
+                            Export JSON
+                          </button>
+                        </Tooltip>
+                        {thumbnails.length > 0 && (
+                          <Tooltip content="Save extracted thumbnails as image files" position="bottom">
+                            <button className="btn btn-secondary" onClick={handleSaveThumbnails}>
+                              <Download size={16} />
+                              Save Thumbnails
+                            </button>
+                          </Tooltip>
                         )}
                       </div>
 
@@ -1214,6 +1399,14 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Help panel */}
+      {showHelp && (
+        <HelpPanel
+          onClose={() => setShowHelp(false)}
+          onStartTour={() => { setShowHelp(false); onboarding.start(); }}
+        />
       )}
     </div>
   );

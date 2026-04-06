@@ -11,7 +11,9 @@ export interface UseScanReturn {
   setScanResult: React.Dispatch<React.SetStateAction<ScanResult | null>>;
   error: string | null;
   thumbnails: string[];
+  setThumbnails: React.Dispatch<React.SetStateAction<string[]>>;
   waveformData: number[];
+  setWaveformData: React.Dispatch<React.SetStateAction<number[]>>;
   isTranscoding: boolean;
   transcodeProgress: number;
   transcodeError: string | null;
@@ -121,7 +123,9 @@ export function useScan(
     setScanResult,
     error,
     thumbnails,
+    setThumbnails,
     waveformData,
+    setWaveformData,
     isTranscoding,
     transcodeProgress,
     transcodeError,
