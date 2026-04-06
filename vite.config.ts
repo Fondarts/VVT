@@ -25,7 +25,7 @@ export default defineConfig({
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: accounts.google.com apis.google.com",
         "style-src 'self' 'unsafe-inline' accounts.google.com",
-        "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://huggingface.co https://cdn-lfs.huggingface.co http://127.0.0.1:3777 ws://localhost:* wss://localhost:*",
+        "connect-src 'self' blob: https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://firestore.googleapis.com https://huggingface.co https://cdn-lfs.huggingface.co https://cdn-lfs-us-1.huggingface.co http://127.0.0.1:3777 ws://localhost:* wss://localhost:*",
         "img-src 'self' blob: data: https://*.googleusercontent.com",
         "media-src 'self' blob: http://127.0.0.1:3777",
         "worker-src 'self' blob:",
