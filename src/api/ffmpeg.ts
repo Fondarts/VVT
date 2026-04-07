@@ -37,18 +37,34 @@ export async function loadFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg>
     if (onLog) _ffmpeg.on('log', ({ message }) => onLog(message));
 
     const base = `${location.origin}${BASE_ST}`;
-    // Single-thread mode only.
-    // Multi-thread (@ffmpeg/core-mt) requires pthread proxy calls from sub-threads
-    // back to the main emscripten thread, but that thread is blocked in Atomics.wait()
-    // during exec() — causing an unrecoverable deadlock. ST is reliable and fast enough.
-    await _ffmpeg.load({
-      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
-      wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
+    const coreJS  = `${base}/ffmpeg-core.js`;
+    const coreWasm = `${base}/ffmpeg-core.wasm`;
+
+    // Try direct same-origin URLs first (avoids toBlobURL fetch + blob import issues).
+    // Fall back to blob URLs if direct load fails (needed on hosts without CORP headers).
+    try {
+      await _ffmpeg.load({ coreURL: coreJS, wasmURL: coreWasm });
+    } catch (directErr) {
+      logger.warn('[FFmpeg] Direct load failed, falling back to blob URLs:', directErr);
+      _ffmpeg.terminate();
+      _ffmpeg = new FFmpeg();
+      if (onLog) _ffmpeg.on('log', ({ message }) => onLog(message));
+      await _ffmpeg.load({
+        coreURL: await toBlobURL(coreJS,   'text/javascript'),
+        wasmURL: await toBlobURL(coreWasm, 'application/wasm'),
+      });
+    }
 
     _loaded = true;
     return _ffmpeg;
   })();
+
+  // Reset singleton on failure so next call can retry
+  _loadPromise.catch(() => {
+    _loadPromise = null;
+    _loaded = false;
+    _ffmpeg = null;
+  });
 
   return _loadPromise;
 }
@@ -1374,11 +1390,32 @@ export async function initBatchPool(): Promise<void> {
   _batchInitPromise = (async () => {
     _pool = Array.from({ length: POOL_SIZE }, () => ({ busy: false }));
     const base = `${location.origin}${BASE_ST}`;
-    [_batchCoreURL, _batchWasmURL] = await Promise.all([
-      toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
-      toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
-    ]);
+    const coreJS  = `${base}/ffmpeg-core.js`;
+    const coreWasm = `${base}/ffmpeg-core.wasm`;
+
+    // Try direct URLs first; fall back to blob URLs if needed
+    try {
+      const testFf = new FFmpeg();
+      await testFf.load({ coreURL: coreJS, wasmURL: coreWasm });
+      testFf.terminate();
+      _batchCoreURL = coreJS;
+      _batchWasmURL = coreWasm;
+    } catch {
+      logger.warn('[FFmpeg] Batch: direct URLs failed, using blob URLs');
+      [_batchCoreURL, _batchWasmURL] = await Promise.all([
+        toBlobURL(coreJS,   'text/javascript'),
+        toBlobURL(coreWasm, 'application/wasm'),
+      ]);
+    }
   })();
+
+  // Reset on failure so retry is possible
+  _batchInitPromise.catch(() => {
+    _batchInitPromise = null;
+    _pool = null;
+    _batchCoreURL = null;
+    _batchWasmURL = null;
+  });
 
   return _batchInitPromise;
 }
