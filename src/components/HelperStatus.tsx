@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Download, CheckCircle2, AlertCircle, MonitorDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Download, CheckCircle2, AlertCircle, MonitorDown, RefreshCw } from 'lucide-react';
 
 interface HelperInfo {
   status: 'checking' | 'connected' | 'offline';
@@ -13,30 +13,30 @@ const RELEASE_URL = 'https://github.com/Fondarts/VVT/releases/latest';
 export const HelperStatus: React.FC = () => {
   const [info, setInfo] = useState<HelperInfo>({ status: 'checking' });
   const [showModal, setShowModal] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const checkHelper = useCallback(async () => {
+    setChecking(true);
+    try {
+      const res = await fetch(`${HELPER_URL}/health`, { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const data = await res.json();
+        setInfo({ status: 'connected', version: data.version, ffmpeg: data.ffmpeg });
+      } else {
+        setInfo({ status: 'offline' });
+      }
+    } catch {
+      setInfo({ status: 'offline' });
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    let interval: ReturnType<typeof setInterval>;
-    const check = async () => {
-      try {
-        const res = await fetch(`${HELPER_URL}/health`, { signal: AbortSignal.timeout(2000) });
-        if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          setInfo({ status: 'connected', version: data.version, ffmpeg: data.ffmpeg });
-          clearInterval(interval);
-          interval = setInterval(check, 30000);
-        } else {
-          setInfo({ status: 'offline' });
-        }
-      } catch {
-        if (!cancelled) setInfo({ status: 'offline' });
-      }
-    };
-    check();
-    interval = setInterval(check, 60000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
+    checkHelper();
+    const interval = setInterval(checkHelper, 60000);
+    return () => clearInterval(interval);
+  }, [checkHelper]);
 
   const color = info.status === 'connected' ? 'var(--color-success)'
     : info.status === 'offline' ? 'var(--color-text-muted)'
@@ -110,9 +110,9 @@ export const HelperStatus: React.FC = () => {
                   ? <CheckCircle2 size={18} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
                   : <AlertCircle size={18} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
                 }
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: '0.8125rem' }}>
-                    {info.status === 'connected' ? 'Connected' : info.status === 'checking' ? 'Checking...' : 'Not running'}
+                    {checking ? 'Checking...' : info.status === 'connected' ? 'Connected' : 'Not running'}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
                     {info.status === 'connected'
@@ -121,6 +121,15 @@ export const HelperStatus: React.FC = () => {
                     }
                   </div>
                 </div>
+                <button
+                  className="btn btn-icon btn-sm"
+                  onClick={checkHelper}
+                  disabled={checking}
+                  title="Check connection"
+                  style={{ flexShrink: 0 }}
+                >
+                  <RefreshCw size={14} className={checking ? 'animate-spin' : ''} />
+                </button>
               </div>
 
               {/* Details when connected */}
