@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Kissd Review</title>
+  <link rel="stylesheet" href="./css/panel.css">
+</head>
+<body>
+
+  <!-- Auth screen -->
+  <div id="auth-screen" class="auth-screen">
+    <div style="font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 4px;">Kissd Review</div>
+    <p>Sign in to view project feedback inside Premiere Pro and After Effects.</p>
+    <button id="btn-signin" class="btn btn-primary">Sign in with Google</button>
+    <p id="auth-error" style="color: var(--error); margin-top: 8px; font-size: 10px;"></p>
+  </div>
+
+  <!-- App screen -->
+  <div id="app-screen" style="display: none; flex-direction: column; height: 100vh;">
+    <!-- Header -->
+    <div class="panel-header">
+      <div class="logo">Kissd Review</div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div id="user-info" class="user"></div>
+        <button id="btn-signout" class="btn btn-secondary btn-sm">Sign out</button>
+      </div>
+    </div>
+
+    <!-- Project selector -->
+    <div class="project-selector">
+      <select id="project-select">
+        <option value="">— Select project —</option>
+      </select>
+    </div>
+
+    <!-- File selector -->
+    <div class="file-selector">
+      <select id="file-select">
+        <option value="">— Select file —</option>
+      </select>
+    </div>
+
+    <!-- Comment list -->
+    <div id="comment-list" class="comment-list">
+      <div class="comment-empty">Select a project and file to view feedback.</div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <span id="status-text">No comments</span>
+      <span>Click a comment to seek playhead</span>
+    </div>
+  </div>
+
+  <!-- Adobe CEP lib -->
+  <script src="./js/CSInterface.js"></script>
+
+  <!-- Firebase v9 compat (CDN — works in CEP's Chromium) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <!-- Panel logic -->
+  <script src="./js/panel.js"></script>
+</body>
+</html>

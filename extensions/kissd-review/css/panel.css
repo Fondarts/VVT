@@ -1,0 +1,202 @@
+/* Kissd Review CEP Panel — matches Adobe dark theme */
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252525;
+  --bg-card: #2a2a2a;
+  --bg-hover: #333;
+  --text-primary: #e0e0e0;
+  --text-muted: #888;
+  --accent: #E1FF1C;
+  --accent-hover: #cbea00;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --border: #3a3a3a;
+  --radius: 4px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "Segoe UI", "Adobe Clean", sans-serif;
+  font-size: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* ── Auth screen ─────────────────────── */
+.auth-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 20px;
+  text-align: center;
+}
+
+.auth-screen img { height: 28px; margin-bottom: 16px; }
+.auth-screen p { color: var(--text-muted); margin-bottom: 16px; font-size: 11px; }
+
+/* ── Buttons ─────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-primary { background: var(--accent); color: #000; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--bg-hover); }
+.btn-sm { padding: 4px 10px; font-size: 10px; }
+
+/* ── Header ──────────────────────────── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.panel-header .logo { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 11px; color: var(--accent); }
+.panel-header .user { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); }
+.panel-header .user img { width: 18px; height: 18px; border-radius: 50%; }
+
+/* ── Project selector ────────────────── */
+.project-selector {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-selector select {
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.file-selector { padding: 4px 12px 8px; border-bottom: 1px solid var(--border); }
+.file-selector select { width: 100%; padding: 5px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 11px; }
+
+/* ── Comment list ────────────────────── */
+.comment-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.comment-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.comment-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.comment-card:hover { background: var(--bg-hover); }
+.comment-card.resolved { opacity: 0.5; border-left-color: var(--success); }
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.comment-author {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.comment-author img { width: 16px; height: 16px; border-radius: 50%; }
+
+.comment-timecode {
+  font-family: "SF Mono", "Consolas", monospace;
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.comment-text { font-size: 11px; color: var(--text-primary); line-height: 1.4; margin-bottom: 4px; }
+
+.comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.comment-badge {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.comment-badge.resolved { background: rgba(34,197,94,0.15); color: var(--success); }
+.comment-badge.range { background: rgba(225,255,28,0.1); color: var(--accent); }
+
+/* Replies */
+.comment-replies {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.reply {
+  padding: 4px 0;
+  font-size: 10px;
+}
+
+.reply-author { font-weight: 600; font-size: 9px; }
+.reply-text { color: var(--text-primary); }
+
+/* ── Status bar ──────────────────────── */
+.status-bar {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 9px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Scrollbar ───────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #666; }
