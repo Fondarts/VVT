@@ -961,17 +961,31 @@ export async function runScan(
     } else {
       onProgress?.(30, `Converting ${video.codec.toUpperCase()} → H.264…`);
       try {
-        let url: string;
+        let url: string | null = null;
+
+        // Try native FFmpeg via Helper first (much faster than WASM)
         try {
-          // WebCodecs path: FFmpeg decodes → raw YUV → HW VideoEncoder (NVENC / QSV / VCE)
-          url = await transcodeWithWebCodecs(ff, inputPath, video, duration, (p) =>
-            onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
+          console.log('[Scan] Trying helper transcode for', file.name, file.size);
+          const { transcodePreviewViaHelper } = await import('../utils/helperFileAccess');
+          url = await transcodePreviewViaHelper(file, (p, label) =>
+            onProgress?.(p, label)
           );
-        } catch {
-          // WebCodecs unavailable or HW encoder missing → WASM libx264 fallback
-          url = await transcodeInFs(ff, inputPath, (p) =>
-            onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
-          );
+          console.log('[Scan] Helper transcode result:', url ? 'success' : 'returned null');
+        } catch (helperErr) {
+          console.warn('[Scan] Helper transcode failed, falling back to WASM:', helperErr);
+        }
+
+        if (!url) {
+          // Fallback: WebCodecs → WASM libx264
+          try {
+            url = await transcodeWithWebCodecs(ff, inputPath, video, duration, (p) =>
+              onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
+            );
+          } catch {
+            url = await transcodeInFs(ff, inputPath, (p) =>
+              onProgress?.(30 + Math.round(p * 0.2), `Converting… ${p}%`)
+            );
+          }
         }
         onTranscodeReady(url);
       } catch (e) {

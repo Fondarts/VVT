@@ -38,6 +38,10 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // ── State ──
 let currentJob = null;
+let hwEncoder = null;  // 'h264_nvenc' | 'h264_videotoolbox' | 'h264_qsv' | null
+const previewJobs = new Map(); // cacheKey -> { status, progress, outputPath, error }
+const PREVIEW_CACHE_DIR = path.join(TEMP_DIR, 'preview-cache');
+if (!fs.existsSync(PREVIEW_CACHE_DIR)) fs.mkdirSync(PREVIEW_CACHE_DIR, { recursive: true });
 
 // ═══════════════════════════════════════════════
 //  FFmpeg auto-detection & download
@@ -522,6 +526,140 @@ async function runExport(job) {
 }
 
 // ═══════════════════════════════════════════════
+//  Hardware acceleration detection
+// ═══════════════════════════════════════════════
+
+function detectHwAccel() {
+  if (!ffmpegPath) return;
+  try {
+    const output = execSync(`"${ffmpegPath}" -hide_banner -encoders`, { timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+    if (output.includes('h264_nvenc')) hwEncoder = 'h264_nvenc';
+    else if (output.includes('h264_videotoolbox')) hwEncoder = 'h264_videotoolbox';
+    else if (output.includes('h264_qsv')) hwEncoder = 'h264_qsv';
+  } catch { /* no HW accel */ }
+}
+
+function getEncoderArgs() {
+  switch (hwEncoder) {
+    case 'h264_nvenc': return ['-c:v', 'h264_nvenc', '-preset', 'p4', '-cq', '28'];
+    case 'h264_videotoolbox': return ['-c:v', 'h264_videotoolbox', '-q:v', '60'];
+    case 'h264_qsv': return ['-c:v', 'h264_qsv', '-global_quality', '28'];
+    default: return ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28'];
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  Preview transcode
+// ═══════════════════════════════════════════════
+
+function previewCacheKey(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return crypto.createHash('md5').update(`${filePath}|${stat.size}|${stat.mtimeMs}`).digest('hex');
+  } catch { return null; }
+}
+
+function cleanPreviewCache() {
+  try {
+    const now = Date.now();
+    const files = fs.readdirSync(PREVIEW_CACHE_DIR);
+    for (const f of files) {
+      const fp = path.join(PREVIEW_CACHE_DIR, f);
+      try {
+        const stat = fs.statSync(fp);
+        if (now - stat.mtimeMs > 24 * 60 * 60 * 1000) fs.unlinkSync(fp);
+      } catch {}
+    }
+  } catch {}
+}
+
+async function runPreviewTranscode(inputPath, cacheKey) {
+  const outputPath = path.join(PREVIEW_CACHE_DIR, `${cacheKey}.mp4`);
+  const job = { status: 'transcoding', progress: 0, outputPath, error: null };
+  previewJobs.set(cacheKey, job);
+
+  try {
+    // Probe duration for progress tracking
+    let duration = 0;
+    if (ffprobePath) {
+      try {
+        const probeOut = execSync(
+          `"${ffprobePath}" -v quiet -print_format json -show_format "${inputPath}"`,
+          { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
+        ).toString();
+        duration = parseFloat(JSON.parse(probeOut).format?.duration || '0');
+      } catch {}
+    }
+
+    console.log(`  [Preview] Starting transcode: ${path.basename(inputPath)} (${duration.toFixed(1)}s)`);
+    console.log(`  [Preview] Encoder: ${hwEncoder || 'libx264'} → ${outputPath}`);
+
+    // Try HW encoder first, fallback to libx264 if it fails
+    const encoderConfigs = [];
+    if (hwEncoder) encoderConfigs.push(getEncoderArgs());
+    encoderConfigs.push(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28']); // always have software fallback
+
+    let success = false;
+    for (const encoderArgs of encoderConfigs) {
+      const args = [
+        '-hide_banner', '-y',
+        '-i', inputPath,
+        ...encoderArgs,
+        '-pix_fmt', 'yuv420p',
+        '-vf', 'scale=-2:720',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-movflags', '+faststart',
+        outputPath,
+      ];
+
+      console.log(`  [Preview] Trying: ${encoderArgs[1]}`);
+      console.log(`  [Preview] ffmpeg ${args.join(' ').substring(0, 200)}`);
+
+      try {
+        await new Promise((resolve, reject) => {
+          const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+          let lastLog = 0;
+          proc.stderr.on('data', (data) => {
+            const str = data.toString();
+            const timeMatch = str.match(/time=(\d+):(\d+):([\d.]+)/);
+            if (timeMatch && duration > 0) {
+              const secs = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+              job.progress = Math.min(99, Math.round((secs / duration) * 100));
+              if (job.progress >= lastLog + 10) {
+                lastLog = job.progress;
+                console.log(`  [Preview] ${job.progress}%`);
+              }
+            }
+          });
+          proc.on('close', (code) => {
+            console.log(`  [Preview] FFmpeg exited with code ${code}`);
+            code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}`));
+          });
+          proc.on('error', reject);
+        });
+        success = true;
+        break; // encoder worked
+      } catch (err) {
+        console.warn(`  [Preview] ${encoderArgs[1]} failed: ${err.message}, trying next…`);
+        try { fs.unlinkSync(outputPath); } catch {}
+        job.progress = 0;
+      }
+    }
+
+    if (!success) throw new Error('All encoders failed');
+
+    job.status = 'ready';
+    job.progress = 100;
+    console.log(`  [Preview] Done! ${outputPath}`);
+  } catch (err) {
+    console.error(`  [Preview] Failed:`, err.message);
+    job.status = 'error';
+    job.error = err.message;
+    try { fs.unlinkSync(outputPath); } catch {}
+  }
+}
+
+// ═══════════════════════════════════════════════
 //  HTTP Server
 // ═══════════════════════════════════════════════
 
@@ -534,7 +672,7 @@ const server = http.createServer(async (req, res) => {
   // GET /health
   if (url.pathname === '/health' && req.method === 'GET') {
     const ffVersion = await checkFFmpeg();
-    return json(res, { status: 'ok', version: VERSION, ffmpeg: ffVersion, platform: process.platform });
+    return json(res, { status: 'ok', version: VERSION, ffmpeg: ffVersion, platform: process.platform, hwEncoder: hwEncoder || 'libx264' });
   }
 
   // POST /pick-file
@@ -808,6 +946,52 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // POST /transcode-preview — transcode a file to H.264 for playback preview
+  if (url.pathname === '/transcode-preview' && req.method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const inputPath = body.inputPath;
+      if (!inputPath) return json(res, { error: 'inputPath required' }, 400);
+      if (!fs.existsSync(inputPath)) return json(res, { error: 'File not found' }, 404);
+      if (!ffmpegPath) return json(res, { error: 'FFmpeg not available' }, 500);
+
+      const cacheKey = previewCacheKey(inputPath);
+      if (!cacheKey) return json(res, { error: 'Cannot stat file' }, 500);
+
+      // Check if already cached on disk
+      const cachedPath = path.join(PREVIEW_CACHE_DIR, `${cacheKey}.mp4`);
+      if (fs.existsSync(cachedPath)) {
+        previewJobs.set(cacheKey, { status: 'ready', progress: 100, outputPath: cachedPath, error: null });
+        return json(res, { ready: true, url: `/serve-file?path=${encodeURIComponent(cachedPath)}`, cacheKey });
+      }
+
+      // Check if already transcoding
+      const existing = previewJobs.get(cacheKey);
+      if (existing && existing.status === 'transcoding') {
+        return json(res, { ready: false, cacheKey, progress: existing.progress });
+      }
+
+      // Start transcode
+      runPreviewTranscode(inputPath, cacheKey);
+      return json(res, { ready: false, cacheKey, progress: 0 });
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
+  // GET /transcode-preview/status?key=... — poll transcode progress
+  if (url.pathname === '/transcode-preview/status' && req.method === 'GET') {
+    const cacheKey = url.searchParams.get('key');
+    if (!cacheKey) return json(res, { error: 'key required' }, 400);
+    const job = previewJobs.get(cacheKey);
+    if (!job) return json(res, { error: 'Job not found' }, 404);
+    if (job.status === 'ready') {
+      return json(res, { ready: true, url: `/serve-file?path=${encodeURIComponent(job.outputPath)}`, progress: 100 });
+    }
+    if (job.status === 'error') {
+      return json(res, { ready: false, error: job.error, progress: 0 });
+    }
+    return json(res, { ready: false, progress: job.progress });
+  }
+
   json(res, { error: 'Not found' }, 404);
 });
 
@@ -830,8 +1014,11 @@ async function main() {
 
   if (ffmpegPath) {
     const ver = await checkFFmpeg();
+    detectHwAccel();
+    cleanPreviewCache();
     console.log(`  FFmpeg:  ${ver || 'found'}`);
     console.log(`  Binary:  ${ffmpegPath}`);
+    console.log(`  HW Enc: ${hwEncoder || 'libx264 (software)'}`);
   }
 
   server.listen(PORT, '127.0.0.1', () => {
