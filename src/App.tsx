@@ -123,6 +123,16 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // "Local" tab unifies single+batch: idle shows dropzone, then auto-routes
+  const isLocalMode = mode === 'single' || mode === 'batch';
+  const isLocalIdle = mode === 'single' && !selectedFile && !videoSrc;
+  const setLocalMode = useCallback(() => {
+    setMode('single');
+    setSelectedFile(null);
+    setVideoSrc(prev => { if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return null; });
+    setIsImage(false);
+  }, []);
+
   const presets = useCustomPresets();
   const {
     customPresets, allPresets, selectedPreset,
@@ -460,9 +470,21 @@ const App: React.FC = () => {
   };
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFileSelected(file);
-  }, [handleFileSelected]);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (files.length === 1) {
+      handleFileSelected(files[0]);
+    } else {
+      // Multiple files → batch mode
+      const videoFiles = Array.from(files).filter(f =>
+        f.type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|mxf|m2ts|ts)$/i.test(f.name)
+      );
+      if (videoFiles.length > 0) {
+        setMode('batch');
+        setTimeout(() => batch.addFiles(videoFiles), 0);
+      }
+    }
+  }, [handleFileSelected, batch]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -476,11 +498,24 @@ const App: React.FC = () => {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file && (file.type.startsWith('video/') || file.type.startsWith('image/'))) {
-      handleFileSelected(file);
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    if (files.length === 1) {
+      const file = files[0];
+      if (file.type.startsWith('video/') || file.type.startsWith('image/')) {
+        handleFileSelected(file);
+      }
+    } else {
+      // Multiple files → batch mode
+      const videoFiles = Array.from(files).filter(f =>
+        f.type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|mxf|m2ts|ts)$/i.test(f.name)
+      );
+      if (videoFiles.length > 0) {
+        setMode('batch');
+        setTimeout(() => batch.addFiles(videoFiles), 0);
+      }
     }
-  }, [handleFileSelected]);
+  }, [handleFileSelected, batch]);
 
   // Re-run validation whenever scanResult or selectedPreset changes
   useEffect(() => {
@@ -593,20 +628,12 @@ const App: React.FC = () => {
           {/* Mode toggle */}
           <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }} role="group" aria-label="Mode selection">
             <button
-              className={`btn btn-sm ${mode === 'single' ? 'btn-primary' : 'btn-secondary'}`}
+              className={`btn btn-sm ${isLocalMode ? 'btn-primary' : 'btn-secondary'}`}
               style={{ borderRadius: 0, borderRight: '1px solid var(--border-color)' }}
-              onClick={() => setMode('single')}
-              aria-pressed={mode === 'single'}
+              onClick={setLocalMode}
+              aria-pressed={isLocalMode}
             >
-              Single
-            </button>
-            <button
-              className={`btn btn-sm ${mode === 'batch' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ borderRadius: 0, borderRight: '1px solid var(--border-color)' }}
-              onClick={() => setMode('batch')}
-              aria-pressed={mode === 'batch'}
-            >
-              Batch
+              Local
             </button>
             <button
               className={`btn btn-sm ${mode === 'projects' ? 'btn-primary' : 'btn-secondary'}`}
@@ -618,20 +645,21 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Hidden file input (single mode only) */}
-          {mode === 'single' && (
+          {/* Hidden file input (local mode) */}
+          {isLocalMode && (
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept="video/*,image/*,.mp4,.mov,.mkv,.webm,.avi,.mxf,.m2ts,.ts,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.avif"
-            aria-label="Select a video or image file"
+            aria-label="Select video or image files"
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
           )}
 
-          {/* Single mode: file picker + scan button */}
-          {mode === 'single' && (
+          {/* Single mode: file picker + scan button (shown when a file is active) */}
+          {mode === 'single' && selectedFile && (
             <>
               <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
                 {isImage ? <ImageIcon size={16} /> : <FileVideo size={16} />}
@@ -754,6 +782,7 @@ const App: React.FC = () => {
             batch={batch}
             selectedPreset={selectedPreset}
             allPresets={allPresets}
+            onToast={addToast}
           />
         )}
 
@@ -765,7 +794,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {mode === 'single' && !selectedFile && !videoSrc && (
+        {isLocalIdle && (
           <div
             className={`dropzone${isDragOver ? ' drag-over' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -777,8 +806,11 @@ const App: React.FC = () => {
               <FileVideo size={48} />
               <ImageIcon size={48} />
             </div>
-            <h3>Select a video or image file</h3>
+            <h3>Select video or image files</h3>
             <p>Click here or drag and drop</p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              1 file → single analysis · multiple files → batch scan
+            </p>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
               Video: MP4, MOV, MKV, WEBM, AVI, MXF · Image: JPG, PNG, WebP, GIF — processed locally, never uploaded
             </p>

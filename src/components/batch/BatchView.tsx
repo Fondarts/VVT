@@ -11,9 +11,10 @@ interface BatchViewProps {
   batch: UseBatchReturn;
   selectedPreset: string;
   allPresets: ValidationPreset[];
+  onToast?: (msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, allPresets }) => {
+export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, allPresets, onToast }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const hasInitialized = useRef(false);
@@ -116,6 +117,7 @@ export const BatchView: React.FC<BatchViewProps> = ({ batch, selectedPreset, all
           allPresets={allPresets}
           onClose={() => setSelectedId(null)}
           onUpdateItem={batch.updateItem}
+          onToast={onToast}
         />
       )}
     </div>

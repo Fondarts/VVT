@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Loader2 } from 'lucide-react';
-import type { BatchItem, ValidationPreset } from '../../shared/types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { X, Loader2, Download, FileText } from 'lucide-react';
+import type { BatchItem, ValidationPreset, ValidationReport } from '../../shared/types';
 import type { VideoPlayerHandle } from '../VideoPlayer';
 import { ReportHeader } from '../ReportHeader';
 import { VideoPlayer } from '../VideoPlayer';
@@ -9,6 +9,8 @@ import { CheckResults } from '../CheckResults';
 import { ThumbnailGrid } from '../ThumbnailGrid';
 import { TranscriptionPanel } from '../TranscriptionPanel';
 import { ContrastChecker } from '../ContrastChecker';
+import { Tooltip } from '../Tooltip';
+import { generatePDF, generateJSON } from '../../utils/pdfGenerator';
 
 interface BatchDetailPanelProps {
   item: BatchItem;
@@ -16,6 +18,7 @@ interface BatchDetailPanelProps {
   allPresets: ValidationPreset[];
   onClose: () => void;
   onUpdateItem: (id: string, patch: Partial<BatchItem>) => void;
+  onToast?: (msg: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
 export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
@@ -24,6 +27,7 @@ export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
   allPresets,
   onClose,
   onUpdateItem,
+  onToast,
 }) => {
   const preset = allPresets.find(p => p.id === selectedPreset);
   const playerRef = useRef<VideoPlayerHandle>(null);
@@ -35,6 +39,52 @@ export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
     setVideoEl(null);
     setVideoCurrentTime(0);
   }, [item.id]);
+
+  const buildReport = useCallback((): ValidationReport => ({
+    timestamp: new Date().toISOString(),
+    presetUsed: selectedPreset,
+    result: item.validationResult || 'COMPLIANT',
+    file: item.scanResult!.file,
+    detected: item.scanResult!,
+    checks: item.checks,
+    contrastChecks: item.contrastChecks,
+    thumbnails: item.thumbnails,
+    audioWaveform: item.waveformData,
+    outputFolder: '',
+    transcription: item.transcription ?? undefined,
+  }), [item, selectedPreset]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!item.scanResult) return;
+    try {
+      const name = item.scanResult.file.name.replace(/\.[^.]+$/, '');
+      await generatePDF(buildReport(), `Kissd_VVT_Report_${name}.pdf`);
+      onToast?.('PDF report exported', 'success');
+    } catch (err) {
+      onToast?.(`PDF export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
+    }
+  }, [item.scanResult, buildReport, onToast]);
+
+  const handleExportJSON = useCallback(async () => {
+    if (!item.scanResult) return;
+    try {
+      const name = item.scanResult.file.name.replace(/\.[^.]+$/, '');
+      await generateJSON(buildReport(), `Kissd_VVT_Report_${name}.json`);
+      onToast?.('JSON report exported', 'success');
+    } catch (err) {
+      onToast?.(`JSON export failed: ${err instanceof Error ? err.message : 'unknown'}`, 'error');
+    }
+  }, [item.scanResult, buildReport, onToast]);
+
+  const handleSaveThumbnails = useCallback(() => {
+    item.thumbnails.forEach((thumb, index) => {
+      const a = document.createElement('a');
+      a.href = thumb;
+      a.download = `thumbnail_${index + 1}.jpg`;
+      a.click();
+    });
+    onToast?.(`${item.thumbnails.length} thumbnails saved`, 'success');
+  }, [item.thumbnails, onToast]);
 
   return (
     <div style={{
@@ -134,6 +184,32 @@ export const BatchDetailPanel: React.FC<BatchDetailPanelProps> = ({
                     {item.statusLabel || 'Scanning…'} {item.progress > 0 && `${item.progress}%`}
                   </p>
                 </>
+              )}
+            </div>
+          )}
+
+          {/* Export buttons */}
+          {item.scanResult && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+              <Tooltip content="Download a full validation report as PDF" position="bottom">
+                <button className="btn btn-primary btn-sm" onClick={handleExportPDF}>
+                  <Download size={14} />
+                  Export PDF
+                </button>
+              </Tooltip>
+              <Tooltip content="Download raw scan data and checks as JSON" position="bottom">
+                <button className="btn btn-secondary btn-sm" onClick={handleExportJSON}>
+                  <FileText size={14} />
+                  Export JSON
+                </button>
+              </Tooltip>
+              {item.thumbnails.length > 0 && (
+                <Tooltip content="Save extracted thumbnails as image files" position="bottom">
+                  <button className="btn btn-secondary btn-sm" onClick={handleSaveThumbnails}>
+                    <Download size={14} />
+                    Save Thumbnails
+                  </button>
+                </Tooltip>
               )}
             </div>
           )}
