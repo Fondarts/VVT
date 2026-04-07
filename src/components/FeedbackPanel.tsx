@@ -36,6 +36,8 @@ interface Props {
   onStagedTimecodeConsumed?: () => void;
   /** Override the derived fileKey (used by share-link anonymous viewers) */
   fileKeyOverride?: string;
+  /** When true, hide timecode-related UI (for image files) */
+  isImage?: boolean;
 }
 
 
@@ -63,6 +65,7 @@ export const FeedbackPanel = React.memo<Props>(({
   stagedTimecode,
   onStagedTimecodeConsumed,
   fileKeyOverride,
+  isImage,
 }) => {
   const key = fileKeyOverride ?? fileKey(fileName, fileSize);
   const [comments, setComments] = useState<FeedbackComment[]>([]);
@@ -317,7 +320,7 @@ export const FeedbackPanel = React.memo<Props>(({
             style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '5px' }}
           >
             <MessageCircle size={13} />
-            {tc}
+            {!isImage && tc}
           </button>
         </div>
 
@@ -328,6 +331,7 @@ export const FeedbackPanel = React.memo<Props>(({
         {showForm && (
           <div className="card" style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {!isImage && <>
               <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
                 {rangeMode ? 'Range:' : 'Frame:'}
               </span>
@@ -359,8 +363,9 @@ export const FeedbackPanel = React.memo<Props>(({
                   </button>
                 </>
               )}
+              </>}
               <div style={{ flex: 1 }} />
-              <button
+              {!isImage && <button
                 type="button"
                 onClick={() => { setRangeMode(r => !r); if (rangeMode) setTimecodeEnd(null); }}
                 style={{
@@ -372,7 +377,7 @@ export const FeedbackPanel = React.memo<Props>(({
                 title="Toggle range mode"
               >
                 Range
-              </button>
+              </button>}
             </div>
 
             <textarea
@@ -443,7 +448,7 @@ export const FeedbackPanel = React.memo<Props>(({
               >
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '5px' }}>
-                  <button
+                  {(!isImage || comment.annotationStrokes?.length) && <button
                     onClick={() => handleSeekToComment(comment)}
                     title={comment.annotationStrokes?.length ? (activeAnnotationId === comment.id ? 'Hide annotation' : 'Show annotation on player') : 'Jump to this timecode'}
                     style={{
@@ -461,15 +466,15 @@ export const FeedbackPanel = React.memo<Props>(({
                       flexShrink: 0,
                     }}
                   >
-                    <Clock size={9} />
+                    {isImage ? <Pencil size={9} /> : <><Clock size={9} />
                     {formatTimecode(comment.timecode, frameRate)}
                     {comment.timecodeEnd !== undefined && comment.timecodeEnd !== null && (
                       <>
                         <ChevronRight size={8} style={{ opacity: 0.6 }} />
                         {formatTimecode(comment.timecodeEnd, frameRate)}
                       </>
-                    )}
-                  </button>
+                    )}</>}
+                  </button>}
 
                   <span style={{
                     fontSize: '0.78rem', fontWeight: 600, flex: 1,

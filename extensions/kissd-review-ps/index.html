@@ -10,7 +10,7 @@
   <!-- Auth screen -->
   <div id="auth-screen" class="auth-screen">
     <div style="font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 4px;">Kissd Review</div>
-    <p>Sign in to view project feedback inside Premiere Pro and After Effects.</p>
+    <p>Sign in to view project feedback inside Photoshop.</p>
     <button id="btn-signin" class="btn btn-primary">Sign in with Google</button>
     <div id="gsi-button" style="display: none; margin-top: 12px;"></div>
     <p id="auth-error" style="color: var(--error); margin-top: 8px; font-size: 10px;"></p>
@@ -20,7 +20,7 @@
   <div id="app-screen" style="display: none; flex-direction: column; height: 100vh;">
     <!-- Header -->
     <div class="panel-header">
-      <button id="btn-projects" class="btn-projects">▶ Projects</button>
+      <button id="btn-projects" class="btn-projects">&#9654; Projects</button>
       <div id="selected-file-label" class="selected-file-label"></div>
       <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
         <div id="user-info" class="user"></div>
@@ -28,17 +28,18 @@
       </div>
     </div>
 
-    <!-- Main content: feedback (hidden until file selected) -->
+    <!-- Main content -->
     <div id="empty-state" class="comment-empty" style="padding-top: 80px;">
       Open <strong>Projects</strong> to browse files and feedback.
     </div>
 
     <div id="feedback-panel" class="feedback-panel" style="display:none;">
-      <!-- Video player -->
-      <div id="player-wrap" class="player-wrap">
-        <video id="video-player" class="video-player" controls preload="metadata"></video>
-        <div id="player-error" class="player-error" style="display:none;">
-          Video preview unavailable — Helper not running.
+      <!-- Image viewer -->
+      <div id="image-wrap" class="image-wrap">
+        <img id="image-viewer" class="image-viewer" alt="">
+        <canvas id="annotation-canvas" class="annotation-canvas"></canvas>
+        <div id="image-error" class="image-error" style="display:none;">
+          Image preview unavailable.
         </div>
       </div>
       <div id="resize-handle" class="resize-handle"></div>
@@ -48,7 +49,6 @@
       </div>
       <div class="status-bar">
         <span id="status-text">No comments</span>
-        <span>Click a comment to seek playhead</span>
       </div>
     </div>
 
@@ -57,10 +57,10 @@
     <div id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <span>Projects</span>
-        <button id="btn-sidebar-close" class="btn-sidebar-close">✕</button>
+        <button id="btn-sidebar-close" class="btn-sidebar-close">&#10005;</button>
       </div>
       <div id="sidebar-tree" class="sidebar-tree">
-        <div class="comment-empty">Loading projects…</div>
+        <div class="comment-empty">Loading projects...</div>
       </div>
     </div>
   </div>
@@ -68,7 +68,7 @@
   <!-- Adobe CEP lib -->
   <script src="./js/CSInterface.js"></script>
 
-  <!-- Firebase v9 compat (CDN — works in CEP's Chromium) -->
+  <!-- Firebase v9 compat -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>

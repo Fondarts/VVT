@@ -1,10 +1,9 @@
 import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Undo2, Pencil, Type, Grid3X3 } from 'lucide-react';
+import { Grid3X3 } from 'lucide-react';
 import { AnnotationCanvas } from './AnnotationCanvas';
 import { overlayPresets } from '../shared/presets';
 import type { AnnotationStroke } from '../shared/types';
 
-const DRAW_COLORS = ['#FA4900', '#E1FF1C', '#FF3B30', '#FF9F0A', '#34C759', '#0A84FF', '#FFFFFF', '#000000'];
 
 interface ImageViewerProps {
   src: string;
@@ -18,6 +17,10 @@ interface ImageViewerProps {
 
 export interface ImageViewerHandle {
   getImageEl: () => HTMLImageElement | null;
+  startDraw: (color: string, tool: 'draw' | 'text' | 'eraser') => void;
+  stopDraw: () => void;
+  undoDraw: () => void;
+  getStrokes: () => AnnotationStroke[];
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
@@ -34,7 +37,7 @@ function drawGrid(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
 }
 
 export const ImageViewer = forwardRef<ImageViewerHandle, ImageViewerProps>(({
-  src, width, height, annotationOverlay, onAnnotationDismiss, onPlaceMarker, onImageReady,
+  src, width, height, annotationOverlay, onAnnotationDismiss, onPlaceMarker: _onPlaceMarker, onImageReady,
 }, ref) => {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +51,17 @@ export const ImageViewer = forwardRef<ImageViewerHandle, ImageViewerProps>(({
   const [showSafeAreas, setShowSafeAreas] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
 
-  useImperativeHandle(ref, () => ({ getImageEl: () => imgRef.current }));
+  useImperativeHandle(ref, () => ({
+    getImageEl: () => imgRef.current,
+    startDraw: (color: string, tool: 'draw' | 'text' | 'eraser') => {
+      setDrawColor(color);
+      setDrawTool(tool === 'eraser' ? 'draw' : tool);
+      setDrawActive(true);
+    },
+    stopDraw: () => { setDrawActive(false); setDrawStrokes([]); },
+    undoDraw: () => setDrawStrokes(s => s.slice(0, -1)),
+    getStrokes: () => drawStrokes,
+  }));
 
   const aspectRatio = height > 0 ? width / height : 16 / 9;
 
@@ -138,8 +151,6 @@ export const ImageViewer = forwardRef<ImageViewerHandle, ImageViewerProps>(({
   const safezonePresets = overlayPresets.filter(o => o.group === 'safezones');
   const isImageOverlay = !!overlayPresets.find(o => o.id === selectedOverlay)?.imagePath;
 
-  const handleConfirm = () => { onPlaceMarker?.(drawStrokes); setDrawStrokes([]); setDrawActive(false); };
-  const handleDiscard = () => { setDrawStrokes([]); setDrawActive(false); };
 
   return (
     <div className="card" style={{ overflow: 'hidden' }}>
@@ -177,38 +188,7 @@ export const ImageViewer = forwardRef<ImageViewerHandle, ImageViewerProps>(({
         )}
       </div>
 
-      {/* Toolbar row 1 — draw tools */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderTop: '1px solid var(--border-color)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm" onClick={() => { setDrawTool('draw'); setDrawActive(true); }} title="Draw"
-          style={{ padding: '2px 6px', background: drawActive && drawTool === 'draw' ? 'var(--color-accent)' : undefined, color: drawActive && drawTool === 'draw' ? '#000' : undefined }}>
-          <Pencil size={11} />
-        </button>
-        <button className="btn btn-sm" onClick={() => { setDrawTool('text'); setDrawActive(true); }} title="Text"
-          style={{ padding: '2px 6px', background: drawActive && drawTool === 'text' ? 'var(--color-accent)' : undefined, color: drawActive && drawTool === 'text' ? '#000' : undefined }}>
-          <Type size={11} />
-        </button>
-
-        <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
-
-        {DRAW_COLORS.map(c => (
-          <button key={c} onClick={() => { setDrawColor(c); setDrawActive(true); }} style={{ width: 16, height: 16, borderRadius: '50%', background: c, border: drawActive && drawColor === c ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer', flexShrink: 0, padding: 0 }} />
-        ))}
-
-        {drawActive && (
-          <>
-            <div style={{ width: 1, height: 16, background: 'var(--border-color)' }} />
-            {drawStrokes.length > 0 && (
-              <button className="btn btn-sm" onClick={() => setDrawStrokes(s => s.slice(0, -1))} title="Undo" style={{ padding: '2px 6px' }}><Undo2 size={10} /></button>
-            )}
-            <button className="btn btn-sm" onClick={handleConfirm} style={{ background: '#FA4900', color: '#000', fontWeight: 700, fontSize: '0.75rem', padding: '4px 10px' }}>Add Comment</button>
-            <button className="btn btn-sm btn-secondary" onClick={handleDiscard} style={{ fontSize: '0.75rem', padding: '4px 10px' }}>Cancel</button>
-          </>
-        )}
-
-        <div style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{width} × {height}</div>
-      </div>
-
-      {/* Toolbar row 2 — overlays */}
+      {/* Toolbar — overlays + dimensions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 10px', borderTop: '1px solid var(--border-color)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
         <select
           value={selectedOverlay}
@@ -238,6 +218,8 @@ export const ImageViewer = forwardRef<ImageViewerHandle, ImageViewerProps>(({
           <Grid3X3 size={12} style={{ display: 'inline' }} />
           <span>Grid</span>
         </label>
+
+        <div style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{width} &times; {height}</div>
       </div>
     </div>
   );

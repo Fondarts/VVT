@@ -1,0 +1,15 @@
+{
+  "name": "kissd-review-installer",
+  "version": "1.0.0",
+  "description": "Installer for Kissd Review Adobe extensions",
+  "main": "install.js",
+  "bin": "install.js",
+  "pkg": {
+    "assets": [
+      "../kissd-review/**/*",
+      "../kissd-review-ps/**/*"
+    ],
+    "targets": ["node18-win-x64"],
+    "outputPath": "dist"
+  }
+}

@@ -725,7 +725,7 @@ const server = http.createServer(async (req, res) => {
     if (!fileId || !token) return json(res, { error: 'fileId and token required' }, 400);
 
     try {
-      const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`;
       const headers = { 'Authorization': `Bearer ${token}` };
 
       // Pass through range header for video seeking

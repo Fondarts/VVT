@@ -34,7 +34,7 @@ import { BatchView } from './components/batch/BatchView';
 import { BrandBackground } from './components/BrandBackground';
 import { VideoPlayer } from './components/VideoPlayer';
 import type { VideoPlayerHandle } from './components/VideoPlayer';
-import { ImageViewer } from './components/ImageViewer';
+import { ImageViewer, type ImageViewerHandle } from './components/ImageViewer';
 import { CheckResults } from './components/CheckResults';
 import { ContrastChecker } from './components/ContrastChecker';
 import { ThumbnailGrid } from './components/ThumbnailGrid';
@@ -340,6 +340,7 @@ const App: React.FC = () => {
   const [slateForceOpen, setSlateForceOpen] = useState(0);
   const snapshotCounterRef = useRef(0);
   const videoPlayerRef = useRef<VideoPlayerHandle>(null);
+  const imageViewerRef = useRef<ImageViewerHandle>(null);
 
   // ── Edit timeline ──
   const timeline = useTimeline({
@@ -892,6 +893,7 @@ const App: React.FC = () => {
               {isImage ? (
                 <ErrorBoundary fallbackLabel="Image viewer crashed">
                 <ImageViewer
+                  ref={imageViewerRef}
                   src={videoSrc}
                   width={scanResult?.image?.width ?? 0}
                   height={scanResult?.image?.height ?? 0}
@@ -1208,6 +1210,7 @@ const App: React.FC = () => {
                     fileName={selectedFile.name}
                     fileSize={selectedFile.size}
                     fileKeyOverride={versionContext?.currentFile.id}
+                    isImage={isImage}
                     currentTime={videoCurrentTime}
                     frameRate={scanResult?.video?.frameRate ?? 0}
                     videoEl={videoEl}
@@ -1218,9 +1221,9 @@ const App: React.FC = () => {
                     onMarkersChange={setFeedbackMarkers}
                     onMarkerRangesChange={setFeedbackMarkerRanges}
                     onAnnotationChange={setAnnotationOverlay}
-                    onStartDraw={(color, tool) => videoPlayerRef.current?.startDraw(color, tool)}
-                    onCaptureDrawStrokes={() => videoPlayerRef.current?.captureDrawStrokes() ?? []}
-                    onSetLineWidth={w => videoPlayerRef.current?.setLineWidth(w)}
+                    onStartDraw={(color, tool) => isImage ? imageViewerRef.current?.startDraw(color, tool) : videoPlayerRef.current?.startDraw(color, tool)}
+                    onCaptureDrawStrokes={() => (isImage ? imageViewerRef.current?.getStrokes() : videoPlayerRef.current?.captureDrawStrokes()) ?? []}
+                    onSetLineWidth={w => !isImage && videoPlayerRef.current?.setLineWidth(w)}
                     onUndoLastStroke={() => videoPlayerRef.current?.undoLastStroke()}
                     onInitializeDrawStrokes={s => videoPlayerRef.current?.initializeDrawStrokes(s)}
                     stagedTimecode={stagedMarker ?? undefined}
