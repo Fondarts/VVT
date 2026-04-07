@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic, Copy, Check, FileDown, AlertCircle,
-  ChevronDown, ChevronUp, Play, Loader2, Settings, Scissors, Merge, Plus,
+  ChevronDown, ChevronUp, Play, Loader2, Settings, Scissors, Merge, Plus, Save, Trash2,
 } from 'lucide-react';
 import type { TranscriptionResult, SubtitleStyle } from '../shared/types';
 import { exportSRT } from '../api/ffmpeg';
 import { transcribeFile, checkModelCached, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
 import type { WhisperModel } from '../api/whisper';
-import { DEFAULT_SUBTITLE_STYLE, FONT_OPTIONS, CHECKERBOARD } from './SubtitleSettingsModal';
+import { DEFAULT_SUBTITLE_STYLE, FONT_OPTIONS, CHECKERBOARD, getAllPresets, loadCustomPresets, saveCustomPresets } from './SubtitleSettingsModal';
+import type { SubtitlePreset } from './SubtitleSettingsModal';
 
 interface Props {
   result?: TranscriptionResult | null;
@@ -99,6 +100,11 @@ export const TranscriptionPanel = React.memo<Props>(({
   const [customFonts, setCustomFonts] = useState<string[]>(loadCustomFonts);
   const [addingFont, setAddingFont] = useState(false);
   const [fontDraft, setFontDraft] = useState('');
+
+  // Subtitle presets
+  const [presets, setPresets] = useState<SubtitlePreset[]>(getAllPresets);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetNameDraft, setPresetNameDraft] = useState('');
 
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const tcEditRef = useRef<HTMLInputElement>(null);
@@ -343,17 +349,78 @@ export const TranscriptionPanel = React.memo<Props>(({
       {showSettings && (
         <div style={{ marginBottom: '10px', padding: '10px 12px', background: 'var(--color-bg-tertiary)', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
 
-          {/* Row 1: Model + Transcribe */}
+          {/* Row 1: Model + Style Preset + Transcribe */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={lbl}>Model</label>
-            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value as WhisperModel)} style={{ ...inp, flex: 1 }}>
+            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value as WhisperModel)} style={{ ...inp, flex: 1, minWidth: 0 }}>
               {WHISPER_MODELS.map(m => (
                 <option key={m.id} value={m.id}>{m.label}{cachedModels[m.id] ? ' ✓' : ''}</option>
               ))}
             </select>
+            <label style={lbl}>Style</label>
+            <select
+              value={presets.find(p => JSON.stringify(p.style) === JSON.stringify(ss))?.id || ''}
+              onChange={e => {
+                const p = presets.find(x => x.id === e.target.value);
+                if (p) updateStyle(p.style);
+              }}
+              style={{ ...inp, flex: 1, minWidth: 0 }}
+            >
+              <option value="" disabled>— Select —</option>
+              <optgroup label="Built-in">
+                {presets.filter(p => p.builtIn).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </optgroup>
+              {presets.some(p => !p.builtIn) && (
+                <optgroup label="Custom">
+                  {presets.filter(p => !p.builtIn).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </optgroup>
+              )}
+            </select>
+            {!savingPreset ? (
+              <button onClick={() => setSavingPreset(true)} title="Save current style as preset"
+                style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '3px 5px', display: 'flex', flexShrink: 0 }}>
+                <Save size={11} />
+              </button>
+            ) : (
+              <input value={presetNameDraft} onChange={e => setPresetNameDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && presetNameDraft.trim()) {
+                    const custom = loadCustomPresets();
+                    custom.push({ id: `custom_${Date.now()}`, name: presetNameDraft.trim(), style: { ...ss } });
+                    saveCustomPresets(custom);
+                    setPresets(getAllPresets());
+                    setPresetNameDraft(''); setSavingPreset(false);
+                  }
+                  if (e.key === 'Escape') { setSavingPreset(false); setPresetNameDraft(''); }
+                }}
+                onBlur={() => {
+                  if (presetNameDraft.trim()) {
+                    const custom = loadCustomPresets();
+                    custom.push({ id: `custom_${Date.now()}`, name: presetNameDraft.trim(), style: { ...ss } });
+                    saveCustomPresets(custom);
+                    setPresets(getAllPresets());
+                  }
+                  setPresetNameDraft(''); setSavingPreset(false);
+                }}
+                placeholder="Preset name…" autoFocus
+                style={{ ...inp, width: '80px', fontSize: '0.62rem', flexShrink: 0 }} />
+            )}
+            {presets.some(p => !p.builtIn && JSON.stringify(p.style) === JSON.stringify(ss)) && (
+              <button onClick={() => {
+                const match = presets.find(p => !p.builtIn && JSON.stringify(p.style) === JSON.stringify(ss));
+                if (match) {
+                  const updated = loadCustomPresets().filter(cp => cp.id !== match.id);
+                  saveCustomPresets(updated);
+                  setPresets(getAllPresets());
+                }
+              }} title="Delete this custom preset"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px', display: 'flex', flexShrink: 0 }}>
+                <Trash2 size={11} />
+              </button>
+            )}
             {videoFile && (
               <button className="btn btn-secondary btn-sm" onClick={handleTranscribe} disabled={transcribing}
-                style={{ fontSize: '0.65rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                style={{ fontSize: '0.65rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                 {transcribing ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Play size={11} />}
                 {transcribing ? 'Working' : 'Transcribe'}
               </button>

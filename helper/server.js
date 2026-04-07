@@ -992,6 +992,39 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ready: false, progress: job.progress });
   }
 
+  // POST /extract-audio — extract 16kHz mono PCM WAV from any video/audio file
+  if (url.pathname === '/extract-audio' && req.method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString());
+      const inputPath = body.inputPath;
+      if (!inputPath) return json(res, { error: 'inputPath required' }, 400);
+      if (!fs.existsSync(inputPath)) return json(res, { error: 'File not found' }, 404);
+      if (!ffmpegPath) return json(res, { error: 'FFmpeg not available' }, 500);
+
+      const id = crypto.randomBytes(8).toString('hex');
+      const wavPath = path.join(TEMP_DIR, `audio_${id}.wav`);
+
+      const args = [
+        '-hide_banner', '-y',
+        '-i', inputPath,
+        '-vn',                         // no video
+        '-ac', '1',                    // mono
+        '-ar', '16000',                // 16kHz
+        '-sample_fmt', 's16',          // 16-bit signed int
+        '-f', 'wav',
+        wavPath,
+      ];
+
+      await new Promise((resolve, reject) => {
+        const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+        proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}`)));
+        proc.on('error', reject);
+      });
+
+      return json(res, { path: wavPath });
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
   json(res, { error: 'Not found' }, 404);
 });
 

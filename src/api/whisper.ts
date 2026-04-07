@@ -121,14 +121,58 @@ export async function checkModelCached(model: WhisperModel): Promise<boolean> {
   }
 }
 
-/** Extract mono 16kHz Float32Array from any browser-decodable audio/video file. */
+const HELPER_URL = 'http://127.0.0.1:3777';
+
+/**
+ * Extract mono 16kHz Float32Array from any audio/video file.
+ * Tries Helper (native FFmpeg) first for reliable extraction from any codec,
+ * falls back to browser's Web Audio API.
+ */
 async function extractAudio16k(file: File): Promise<Float32Array> {
+  // Try native FFmpeg via helper — works with ProRes, MXF, etc.
+  try {
+    const health = await fetch(`${HELPER_URL}/health`, { signal: AbortSignal.timeout(1500) }).catch(() => null);
+    if (health?.ok) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'mp4';
+      const uploadRes = await fetch(`${HELPER_URL}/upload-video?ext=${ext}`, { method: 'POST', body: file });
+      if (uploadRes.ok) {
+        const { path: inputPath } = await uploadRes.json();
+        if (inputPath) {
+          // Extract audio as 16kHz mono WAV via helper
+          const extractRes = await fetch(`${HELPER_URL}/extract-audio`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inputPath }),
+          });
+          if (extractRes.ok) {
+            const { path: wavPath } = await extractRes.json();
+            if (wavPath) {
+              const wavRes = await fetch(`${HELPER_URL}/serve-file?path=${encodeURIComponent(wavPath)}`);
+              const wavBuffer = await wavRes.arrayBuffer();
+              // Parse WAV: skip 44-byte header, read as float32 PCM
+              const pcmData = new Float32Array(wavBuffer.slice(44).byteLength / 4);
+              new Float32Array(wavBuffer.slice(44)).forEach((v, i) => { pcmData[i] = v; });
+              // Actually, FFmpeg outputs 16-bit PCM by default. Read as Int16 and convert.
+              const int16 = new Int16Array(wavBuffer.slice(44));
+              const float32 = new Float32Array(int16.length);
+              for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+              console.log('[Whisper] Audio extracted via helper:', float32.length, 'samples,', (float32.length / 16000).toFixed(1), 'seconds');
+              return float32;
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Whisper] Helper audio extraction failed, falling back to browser:', e);
+  }
+
+  // Fallback: browser Web Audio API (limited codec support)
   const arrayBuffer = await file.arrayBuffer();
   const decodeCtx = new AudioContext();
   const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
   await decodeCtx.close();
 
-  // Resample to 16 kHz mono using OfflineAudioContext
   const targetRate = 16000;
   const offlineCtx = new OfflineAudioContext(
     1,
@@ -174,8 +218,9 @@ export async function transcribeFile(
         const wordChunks: Array<{ timestamp: [number, number | null]; text: string }> =
           output.chunks ?? [];
 
-        // Strip Whisper noise/non-speech tags: [BEEP], [Music], [Noise], ♪, etc.
-        const NOISE_TAG = /\s*\[(BEEP|BEP|Music|MUSIC|Applause|APPLAUSE|Noise|NOISE|Laughter|LAUGHTER|BLANK_AUDIO|Silence|SILENCE|inaudible|INAUDIBLE)\]\s*/gi;
+        // Strip Whisper noise/non-speech tags: [MUSIC PLAYING], [Music], [Noise], ♪, etc.
+        // Catches any bracketed tag that contains common non-speech keywords
+        const NOISE_TAG = /\s*\[[^\]]*?\b(MUSIC|Music|music|PLAYING|playing|BEEP|BEP|Beep|Applause|applause|Noise|noise|Laughter|laughter|BLANK_AUDIO|Silence|silence|inaudible|INAUDIBLE|background|BACKGROUND|crosstalk|CROSSTALK)\b[^\]]*?\]\s*/g;
         const MUSIC_NOTES = /[♪♫]+/g;
 
         function cleanText(raw: string): string {
