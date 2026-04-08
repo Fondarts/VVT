@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { TranscriptionResult, SubtitleStyle } from '../shared/types';
 import { exportSRT } from '../api/ffmpeg';
-import { transcribeFile, checkModelCached, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
+import { transcribeFile, checkModelCached, splitLongSegments, WHISPER_MODELS, WHISPER_LANGUAGES } from '../api/whisper';
 import type { WhisperModel } from '../api/whisper';
 import { DEFAULT_SUBTITLE_STYLE, FONT_OPTIONS, CHECKERBOARD, getAllPresets, loadCustomPresets, saveCustomPresets } from './SubtitleSettingsModal';
 import type { SubtitlePreset } from './SubtitleSettingsModal';
@@ -95,6 +95,7 @@ export const TranscriptionPanel = React.memo<Props>(({
   const [transcribeError, setTranscribeError] = useState<string | null>(null);
   const [cachedModels, setCachedModels] = useState<Partial<Record<WhisperModel, boolean>>>({});
   const [showSettings, setShowSettings] = useState(false);
+  const [showStyleGallery, setShowStyleGallery] = useState(false);
 
   // Custom fonts
   const [customFonts, setCustomFonts] = useState<string[]>(loadCustomFonts);
@@ -133,8 +134,9 @@ export const TranscriptionPanel = React.memo<Props>(({
   useEffect(() => { if (editingTcIdx !== null) { tcEditRef.current?.focus(); tcEditRef.current?.select(); } }, [editingTcIdx]);
 
   useEffect(() => {
+    // Check browser Whisper model cache
     Promise.all(
-      WHISPER_MODELS.map(m => checkModelCached(m.id).then(cached => ({ id: m.id, cached })))
+      WHISPER_MODELS.filter(m => m.group === 'browser').map(m => checkModelCached(m.id).then(cached => ({ id: m.id, cached })))
     ).then(results => {
       const map: Partial<Record<WhisperModel, boolean>> = {};
       results.forEach(r => { map[r.id] = r.cached; });
@@ -163,8 +165,13 @@ export const TranscriptionPanel = React.memo<Props>(({
         model: selectedModel, language: selectedLanguage,
         onStatus: (label, progress) => { setTranscribeStatus(label); if (progress !== undefined) setTranscribeProgress(progress); },
       });
-      setInternalResult(res);
-      onTranscriptionDone?.(res);
+      // Split segments that exceed subtitle display limits
+      const fitted: typeof res = {
+        ...res,
+        segments: splitLongSegments(res.segments, ss.maxCharsPerLine, ss.maxLines),
+      };
+      setInternalResult(fitted);
+      onTranscriptionDone?.(fitted);
       setCachedModels(prev => ({ ...prev, [selectedModel]: true }));
     } catch (err) {
       setTranscribeError(err instanceof Error ? err.message : String(err));
@@ -353,29 +360,23 @@ export const TranscriptionPanel = React.memo<Props>(({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <label style={lbl}>Model</label>
             <select value={selectedModel} onChange={e => setSelectedModel(e.target.value as WhisperModel)} style={{ ...inp, flex: 1, minWidth: 0 }}>
-              {WHISPER_MODELS.map(m => (
-                <option key={m.id} value={m.id}>{m.label}{cachedModels[m.id] ? ' ✓' : ''}</option>
-              ))}
+              <optgroup label="Browser (no install)">
+                {WHISPER_MODELS.filter(m => m.group === 'browser').map(m => (
+                  <option key={m.id} value={m.id}>{m.label}{cachedModels[m.id] ? ' ✓' : ''}</option>
+                ))}
+              </optgroup>
+              <optgroup label="WhisperX (precise, requires Helper)">
+                {WHISPER_MODELS.filter(m => m.group === 'whisperx').map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </optgroup>
             </select>
             <label style={lbl}>Style</label>
-            <select
-              value={presets.find(p => JSON.stringify(p.style) === JSON.stringify(ss))?.id || ''}
-              onChange={e => {
-                const p = presets.find(x => x.id === e.target.value);
-                if (p) updateStyle(p.style);
-              }}
-              style={{ ...inp, flex: 1, minWidth: 0 }}
-            >
-              <option value="" disabled>— Select —</option>
-              <optgroup label="Built-in">
-                {presets.filter(p => p.builtIn).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </optgroup>
-              {presets.some(p => !p.builtIn) && (
-                <optgroup label="Custom">
-                  {presets.filter(p => !p.builtIn).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </optgroup>
-              )}
-            </select>
+            <button onClick={() => setShowStyleGallery(v => !v)}
+              style={{ ...inp, flex: 1, minWidth: 0, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>{presets.find(p => JSON.stringify(p.style) === JSON.stringify(ss))?.name || 'Custom'}</span>
+              <ChevronDown size={10} />
+            </button>
             {!savingPreset ? (
               <button onClick={() => setSavingPreset(true)} title="Save current style as preset"
                 style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '3px 5px', display: 'flex', flexShrink: 0 }}>
@@ -405,19 +406,6 @@ export const TranscriptionPanel = React.memo<Props>(({
                 placeholder="Preset name…" autoFocus
                 style={{ ...inp, width: '80px', fontSize: '0.62rem', flexShrink: 0 }} />
             )}
-            {presets.some(p => !p.builtIn && JSON.stringify(p.style) === JSON.stringify(ss)) && (
-              <button onClick={() => {
-                const match = presets.find(p => !p.builtIn && JSON.stringify(p.style) === JSON.stringify(ss));
-                if (match) {
-                  const updated = loadCustomPresets().filter(cp => cp.id !== match.id);
-                  saveCustomPresets(updated);
-                  setPresets(getAllPresets());
-                }
-              }} title="Delete this custom preset"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '2px', display: 'flex', flexShrink: 0 }}>
-                <Trash2 size={11} />
-              </button>
-            )}
             {videoFile && (
               <button className="btn btn-secondary btn-sm" onClick={handleTranscribe} disabled={transcribing}
                 style={{ fontSize: '0.65rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -426,6 +414,90 @@ export const TranscriptionPanel = React.memo<Props>(({
               </button>
             )}
           </div>
+
+          {/* Style Gallery Modal */}
+          {showStyleGallery && (<>
+            <div onClick={() => setShowStyleGallery(false)} style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9998,
+              backdropFilter: 'blur(2px)',
+            }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              zIndex: 9999, background: 'var(--color-bg-secondary)', borderRadius: '12px',
+              border: '1px solid var(--color-border)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+              width: 'min(520px, 90vw)', maxHeight: '80vh', overflow: 'auto',
+              padding: '20px',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-primary)' }}>Subtitle Styles</h3>
+                <button onClick={() => setShowStyleGallery(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px' }}>✕</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: '12px' }}>
+                {presets.map(p => {
+                  const isActive = JSON.stringify(p.style) === JSON.stringify(ss);
+                  return (
+                    <div key={p.id}
+                      onClick={() => { updateStyle(p.style); setShowStyleGallery(false); }}
+                      style={{
+                        cursor: 'pointer', borderRadius: '8px', overflow: 'hidden',
+                        border: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
+                        background: 'var(--color-bg-tertiary)',
+                        transition: 'border-color 0.15s, transform 0.15s',
+                      }}
+                      onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--color-border)'; }}
+                      onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'; }}
+                    >
+                      {/* Video-like preview area */}
+                      <div style={{
+                        background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+                        height: '80px', display: 'flex', justifyContent: 'center', padding: '6px 8px',
+                        alignItems: p.style.position === 'top' ? 'flex-start' : p.style.position === 'center' ? 'center' : 'flex-end',
+                        position: 'relative',
+                      }}>
+                        <span style={{
+                          fontFamily: p.style.fontFamily,
+                          fontSize: '10px',
+                          color: p.style.color,
+                          WebkitTextStroke: p.style.strokeWidth > 0 ? `${Math.max(0.5, p.style.strokeWidth * 0.18)}px ${p.style.strokeColor}` : undefined,
+                          paintOrder: 'stroke fill',
+                          background: p.style.showBackground ? p.style.backgroundColor : 'transparent',
+                          padding: p.style.showBackground ? '3px 8px' : '3px 0',
+                          borderRadius: '3px', textAlign: 'center', lineHeight: 1.35,
+                          maxWidth: '95%',
+                        }}>
+                          Sample subtitle text
+                        </span>
+                      </div>
+                      {/* Label bar */}
+                      <div style={{
+                        padding: '6px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      }}>
+                        <span style={{
+                          fontSize: '0.68rem',
+                          color: isActive ? 'var(--color-accent)' : 'var(--color-text-primary)',
+                          fontWeight: isActive ? 600 : 400,
+                        }}>{p.name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {isActive && <span style={{ fontSize: '0.55rem', color: 'var(--color-accent)', opacity: 0.8 }}>Active</span>}
+                          {!p.builtIn && (
+                            <span onClick={e => {
+                              e.stopPropagation();
+                              const updated = loadCustomPresets().filter(cp => cp.id !== p.id);
+                              saveCustomPresets(updated);
+                              setPresets(getAllPresets());
+                            }} title="Delete preset" style={{ cursor: 'pointer', color: 'var(--color-text-muted)', opacity: 0.5, display: 'flex' }}>
+                              <Trash2 size={10} />
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>)}
 
           {/* Row 2: Font + size + color + stroke */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -475,6 +547,10 @@ export const TranscriptionPanel = React.memo<Props>(({
             <input type="color" value={bgParsed.hex}
               onChange={e => updateStyle({ showBackground: true, backgroundColor: hexToRgba(e.target.value, bgParsed.alpha) })}
               style={{ width: 22, height: 22, border: 'none', padding: 0, cursor: 'pointer', background: 'none', flexShrink: 0 }} />
+            <input type="range" min={0} max={100} value={Math.round(bgParsed.alpha * 100)}
+              onChange={e => updateStyle({ showBackground: true, backgroundColor: hexToRgba(bgParsed.hex, parseInt(e.target.value) / 100) })}
+              title={`Opacity: ${Math.round(bgParsed.alpha * 100)}%`}
+              style={{ width: 50, height: 16, cursor: 'pointer', flexShrink: 0 }} />
             <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
               <input type="checkbox" className="toggle-checkbox" checked={ss.showBackground}
                 onChange={e => updateStyle({ showBackground: e.target.checked })} />
@@ -541,8 +617,8 @@ export const TranscriptionPanel = React.memo<Props>(({
                 </button>
               </div>
               <p style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                Using: {WHISPER_MODELS.find(m => m.id === selectedModel)?.label}
-                {cachedModels[selectedModel] ? ' ✓' : ` (${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} download)`}
+                Using: {selectedModel.startsWith('whisperx/') ? 'WhisperX ' : ''}{WHISPER_MODELS.find(m => m.id === selectedModel)?.label}
+                {selectedModel.startsWith('whisperx/') ? ' (Helper + Python)' : cachedModels[selectedModel] ? ' ✓' : ` (${WHISPER_MODELS.find(m => m.id === selectedModel)?.size} download)`}
               </p>
               {transcribing && transcribeStatus.includes('Downloading') && (
                 <div>

@@ -885,14 +885,9 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
     seg => currentTimeMs >= seg.from && currentTimeMs <= seg.to
   )?.text ?? null;
 
-  // Word-wrap subtitle based on maxCharsPerLine, capped by maxLines
+  // Word-wrap subtitle based on maxCharsPerLine (segments are pre-split to fit maxLines)
   const maxCpl = subtitleStyle?.maxCharsPerLine ?? 42;
-  const maxLines = subtitleStyle?.maxLines ?? 2;
-  const currentSubtitle = currentSubtitleRaw ? (() => {
-    const wrapped = wrapSubtitle(currentSubtitleRaw, maxCpl);
-    const lines = wrapped.split('\n');
-    return lines.length > maxLines ? lines.slice(0, maxLines).join('\n') : wrapped;
-  })() : null;
+  const currentSubtitle = currentSubtitleRaw ? wrapSubtitle(currentSubtitleRaw, maxCpl) : null;
 
   const guidePresets = overlayPresets.filter(o => o.group === 'guides');
   const safezoneImagePresets = overlayPresets.filter(o => o.group === 'safezones');

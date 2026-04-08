@@ -15,7 +15,7 @@ const crypto = require('crypto');
 const https = require('https');
 
 const PORT = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--port') || '3777');
-const VERSION = '1.0.0';
+const VERSION = '1.5.0';
 const APP_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
 // On macOS .app bundles, the binary is inside Contents/MacOS which is read-only after signing.
 // Use ~/Library/Application Support for persistent data instead.
@@ -42,6 +42,34 @@ let hwEncoder = null;  // 'h264_nvenc' | 'h264_videotoolbox' | 'h264_qsv' | null
 const previewJobs = new Map(); // cacheKey -> { status, progress, outputPath, error }
 const PREVIEW_CACHE_DIR = path.join(TEMP_DIR, 'preview-cache');
 if (!fs.existsSync(PREVIEW_CACHE_DIR)) fs.mkdirSync(PREVIEW_CACHE_DIR, { recursive: true });
+
+// ═══════════════════════════════════════════════
+//  Windows Autostart (Registry)
+// ═══════════════════════════════════════════════
+
+const AUTOSTART_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+const AUTOSTART_VALUE_NAME = 'KissdHelper';
+
+function getAutostartEnabled() {
+  if (process.platform !== 'win32') return false;
+  try {
+    const out = execSync(`reg query "${AUTOSTART_REG_KEY}" /v "${AUTOSTART_VALUE_NAME}" 2>nul`, { encoding: 'utf8' });
+    return out.includes(AUTOSTART_VALUE_NAME);
+  } catch { return false; }
+}
+
+function setAutostartEnabled(enabled) {
+  if (process.platform !== 'win32') return false;
+  const exePath = process.pkg ? process.execPath : `"${process.argv[0]}" "${path.resolve(__dirname, 'server.js')}"`;
+  try {
+    if (enabled) {
+      execSync(`reg add "${AUTOSTART_REG_KEY}" /v "${AUTOSTART_VALUE_NAME}" /t REG_SZ /d "${exePath}" /f`, { encoding: 'utf8' });
+    } else {
+      execSync(`reg delete "${AUTOSTART_REG_KEY}" /v "${AUTOSTART_VALUE_NAME}" /f`, { encoding: 'utf8' });
+    }
+    return true;
+  } catch { return false; }
+}
 
 // ═══════════════════════════════════════════════
 //  FFmpeg auto-detection & download
@@ -672,7 +700,26 @@ const server = http.createServer(async (req, res) => {
   // GET /health
   if (url.pathname === '/health' && req.method === 'GET') {
     const ffVersion = await checkFFmpeg();
-    return json(res, { status: 'ok', version: VERSION, ffmpeg: ffVersion, platform: process.platform, hwEncoder: hwEncoder || 'libx264' });
+    let alignReady = false;
+    try { const a = require('./forced-align'); await a.init(DATA_DIR); alignReady = a.isModelReady(); } catch {}
+    let whisperxReady = false;
+    try { const wx = require('./whisperx-runner'); whisperxReady = wx.isInstalled().whisperx; } catch {}
+    return json(res, { status: 'ok', version: VERSION, ffmpeg: ffVersion, platform: process.platform, hwEncoder: hwEncoder || 'libx264', alignReady, whisperxReady });
+  }
+
+  // GET /autostart — check if autostart is enabled
+  if (url.pathname === '/autostart' && req.method === 'GET') {
+    return json(res, { enabled: getAutostartEnabled() });
+  }
+
+  // POST /autostart — enable or disable autostart { enabled: true/false }
+  if (url.pathname === '/autostart' && req.method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString() || '{}');
+      const ok = setAutostartEnabled(!!body.enabled);
+      if (!ok) return json(res, { error: 'Autostart is only supported on Windows' }, 400);
+      return json(res, { enabled: getAutostartEnabled() });
+    } catch (err) { return json(res, { error: err.message }, 500); }
   }
 
   // POST /pick-file
@@ -1023,6 +1070,208 @@ const server = http.createServer(async (req, res) => {
 
       return json(res, { path: wavPath });
     } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
+  // ── WhisperX endpoints ──
+
+  // GET /whisperx/status — check if Python + WhisperX are available
+  if (url.pathname === '/whisperx/status' && req.method === 'GET') {
+    try {
+      const wx = require('./whisperx-runner');
+      const status = wx.isInstalled();
+      return json(res, { ...status, installCommand: wx.getInstallCommand() });
+    } catch (err) {
+      return json(res, { python: false, whisperx: false, error: err.message });
+    }
+  }
+
+  // POST /whisperx/install — install WhisperX via pip (SSE progress stream)
+  if (url.pathname === '/whisperx/install' && req.method === 'POST') {
+    try {
+      const wx = require('./whisperx-runner');
+      const py = wx.findPython();
+      if (!py) return json(res, { error: 'Python 3.10+ not found. Install Python first from python.org' }, 400);
+
+      const status = wx.isInstalled();
+      if (status.whisperx) return json(res, { status: 'already_installed' });
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      res.write(`data: ${JSON.stringify({ status: 'installing', message: 'Installing WhisperX (this may take a few minutes)...' })}\n\n`);
+
+      const pipProc = spawn(py.split(' ')[0], [...py.split(' ').slice(1), '-m', 'pip', 'install', 'whisperx'].filter(Boolean), {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      pipProc.stdout.on('data', (data) => {
+        const lines = data.toString().split('\n').filter(Boolean);
+        for (const line of lines) {
+          res.write(`data: ${JSON.stringify({ status: 'installing', message: line.trim() })}\n\n`);
+        }
+      });
+
+      pipProc.stderr.on('data', (data) => {
+        const lines = data.toString().split('\n').filter(Boolean);
+        for (const line of lines) {
+          res.write(`data: ${JSON.stringify({ status: 'installing', message: line.trim() })}\n\n`);
+        }
+      });
+
+      pipProc.on('close', (code) => {
+        if (code === 0) {
+          res.write(`data: ${JSON.stringify({ status: 'done' })}\n\n`);
+        } else {
+          res.write(`data: ${JSON.stringify({ status: 'error', error: `pip install failed with code ${code}` })}\n\n`);
+        }
+        res.end();
+      });
+
+      pipProc.on('error', (err) => {
+        res.write(`data: ${JSON.stringify({ status: 'error', error: err.message })}\n\n`);
+        res.end();
+      });
+      return;
+    } catch (err) {
+      if (!res.headersSent) return json(res, { error: err.message }, 500);
+      res.end();
+      return;
+    }
+  }
+
+  // POST /whisperx/transcribe — run WhisperX transcription + alignment
+  // Body: { inputPath: string, model?: string, language?: string }
+  // Returns SSE stream with progress, then final JSON
+  if (url.pathname === '/whisperx/transcribe' && req.method === 'POST') {
+    try {
+      const wx = require('./whisperx-runner');
+      const status = wx.isInstalled();
+      if (!status.python) return json(res, { error: 'Python not found. Install Python 3.8+ first.' }, 400);
+      if (!status.whisperx) return json(res, { error: `WhisperX not installed. Run: ${wx.getInstallCommand()}` }, 400);
+
+      const body = JSON.parse((await readBody(req)).toString());
+      const { inputPath, model, language } = body;
+      if (!inputPath) return json(res, { error: 'inputPath required' }, 400);
+
+      // If input is not a WAV, extract audio first
+      let audioPath = inputPath;
+      const ext = path.extname(inputPath).toLowerCase();
+      if (ext !== '.wav' && ffmpegPath) {
+        const id = crypto.randomBytes(8).toString('hex');
+        audioPath = path.join(TEMP_DIR, `whisperx_audio_${id}.wav`);
+        await new Promise((resolveFF, rejectFF) => {
+          const proc = spawn(ffmpegPath, [
+            '-hide_banner', '-y', '-i', inputPath,
+            '-vn', '-ac', '1', '-ar', '16000', '-sample_fmt', 's16', '-f', 'wav', audioPath,
+          ], { stdio: ['pipe', 'pipe', 'pipe'] });
+          proc.on('close', (code) => code === 0 ? resolveFF() : rejectFF(new Error(`FFmpeg exit ${code}`)));
+          proc.on('error', rejectFF);
+        });
+      }
+
+      // Stream progress via SSE
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      const result = await wx.transcribe(audioPath, {
+        model: model || 'base',
+        language: language || 'auto',
+        outputDir: TEMP_DIR,
+        onProgress: (status, data) => {
+          res.write(`data: ${JSON.stringify({ status, ...data })}\n\n`);
+        },
+      });
+
+      res.write(`data: ${JSON.stringify({ status: 'result', ...result })}\n\n`);
+      res.end();
+    } catch (err) {
+      console.error('[WhisperX] Error:', err);
+      // If headers already sent (SSE), send error as event
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ status: 'error', error: err.message })}\n\n`);
+        res.end();
+      } else {
+        return json(res, { error: err.message }, 500);
+      }
+    }
+    return;
+  }
+
+  // ── Forced Alignment endpoints ──
+
+  // GET /align/status — check if wav2vec2 model is available
+  if (url.pathname === '/align/status' && req.method === 'GET') {
+    try {
+      const aligner = require('./forced-align');
+      await aligner.init(DATA_DIR);
+      return json(res, { available: true, modelReady: aligner.isModelReady() });
+    } catch (err) {
+      return json(res, { available: false, error: err.message });
+    }
+  }
+
+  // POST /align/download — download wav2vec2 model (streams progress via SSE)
+  if (url.pathname === '/align/download' && req.method === 'POST') {
+    try {
+      const aligner = require('./forced-align');
+      await aligner.init(DATA_DIR);
+      if (aligner.isModelReady()) return json(res, { status: 'ready' });
+
+      // Stream progress as SSE
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      await aligner.downloadModel((pct, downloaded, total) => {
+        res.write(`data: ${JSON.stringify({ pct, downloaded, total })}\n\n`);
+      });
+
+      res.write(`data: ${JSON.stringify({ status: 'done' })}\n\n`);
+      res.end();
+      return;
+    } catch (err) { return json(res, { error: err.message }, 500); }
+  }
+
+  // POST /align — run forced alignment
+  // Body: { wavPath: string, words: [{text: string}] }
+  // Returns: { words: [{word, start, end}] }
+  if (url.pathname === '/align' && req.method === 'POST') {
+    try {
+      const aligner = require('./forced-align');
+      await aligner.init(DATA_DIR);
+
+      if (!aligner.isModelReady()) {
+        return json(res, { error: 'Model not downloaded. POST /align/download first.' }, 400);
+      }
+
+      const body = JSON.parse((await readBody(req)).toString());
+      const { wavPath, words, startTime } = body;
+      if (!wavPath || !words) return json(res, { error: 'wavPath and words required' }, 400);
+      if (!fs.existsSync(wavPath)) return json(res, { error: 'WAV file not found' }, 404);
+
+      // Read WAV: 16kHz 16-bit PCM → Float32Array
+      const wavBuffer = fs.readFileSync(wavPath);
+      const int16 = new Int16Array(wavBuffer.buffer, wavBuffer.byteOffset + 44, (wavBuffer.byteLength - 44) / 2);
+      const audio = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) audio[i] = int16[i] / 32768;
+
+      const aligned = await aligner.align(audio, words, startTime || 0);
+      return json(res, { words: aligned });
+    } catch (err) {
+      console.error('[Align] Error:', err);
+      return json(res, { error: err.message }, 500);
+    }
   }
 
   json(res, { error: 'Not found' }, 404);
