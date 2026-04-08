@@ -350,6 +350,8 @@ export interface ProjectFolder {
   name: string;
   parentPath: string;
   createdAt: string;
+  /** Google Drive folder ID — used for auto-sync of new files */
+  driveFolderId?: string;
 }
 
 export interface ProjectFile {
