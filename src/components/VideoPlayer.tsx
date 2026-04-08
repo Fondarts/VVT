@@ -466,7 +466,7 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
   // Format timecode — standalone so rAF loop can call it
   const fmtTC = (seconds: number) => formatTimecode(seconds, frameRateRef.current ?? 25);
 
-  // Smooth scrubber + timecode — rAF loop directly updates DOM while playing
+  // Smooth scrubber + timecode + subtitle sync — rAF loop updates DOM and state while playing
   useEffect(() => {
     if (tl) return; // timeline mode has its own rAF below
     if (!isPlaying) return;
@@ -475,6 +475,8 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
       const dur = durationRef.current;
       if (rangeRef.current) rangeRef.current.value = String(t);
       if (timecodeRef.current) timecodeRef.current.textContent = `${fmtTC(t)} / ${fmtTC(dur)}`;
+      // Update state every frame so karaoke words track accurately
+      setCurrentTime(t);
       playheadRafRef.current = requestAnimationFrame(tick);
     };
     playheadRafRef.current = requestAnimationFrame(tick);
@@ -881,13 +883,17 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
 
   // Find the subtitle segment that matches the current playback time
   const currentTimeMs = currentTime * 1000;
-  const currentSubtitleRaw = subtitles?.find(
+  const currentSegment = subtitles?.find(
     seg => currentTimeMs >= seg.from && currentTimeMs <= seg.to
-  )?.text ?? null;
+  ) ?? null;
+  const currentSubtitleRaw = currentSegment?.text ?? null;
 
   // Word-wrap subtitle based on maxCharsPerLine (segments are pre-split to fit maxLines)
   const maxCpl = subtitleStyle?.maxCharsPerLine ?? 42;
   const currentSubtitle = currentSubtitleRaw ? wrapSubtitle(currentSubtitleRaw, maxCpl) : null;
+
+  // Karaoke mode: check if we have word-level timestamps for the current segment
+  const karaokeEnabled = subtitleStyle?.karaoke && currentSegment?.words && currentSegment.words.length > 0;
 
   const guidePresets = overlayPresets.filter(o => o.group === 'guides');
   const safezoneImagePresets = overlayPresets.filter(o => o.group === 'safezones');
@@ -1028,6 +1034,16 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
             : pos === 'center'
             ? { top: '50%', transform: 'translateY(-50%)' }
             : { bottom: '8%' };
+
+          const baseTextStyle: React.CSSProperties = {
+            color: ss?.color || '#fff',
+            fontFamily: ss?.fontFamily || 'Arial',
+            WebkitTextStroke: ss && ss.strokeWidth > 0 ? `${ss.strokeWidth * 0.5}px ${ss.strokeColor}` : undefined,
+            paintOrder: 'stroke fill' as const,
+          };
+
+          const karaokeColor = ss?.karaokeColor || '#E1FF1C';
+
           return (
             <div
               style={{
@@ -1042,11 +1058,8 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
             >
               <span
                 style={{
+                  ...baseTextStyle,
                   background: ss?.showBackground ? (ss.backgroundColor || 'rgba(0,0,0,0.78)') : 'transparent',
-                  color: ss?.color || '#fff',
-                  fontFamily: ss?.fontFamily || 'Arial',
-                  WebkitTextStroke: ss && ss.strokeWidth > 0 ? `${ss.strokeWidth * 0.5}px ${ss.strokeColor}` : undefined,
-                  paintOrder: 'stroke fill' as const,
                   padding: ss?.showBackground ? '4px 14px' : '4px 0',
                   borderRadius: '4px',
                   fontSize: scaledFontSize,
@@ -1056,7 +1069,64 @@ export const VideoPlayer = React.memo(forwardRef<VideoPlayerHandle, VideoPlayerP
                   whiteSpace: 'pre-wrap',
                 }}
               >
-                {currentSubtitle}
+                {karaokeEnabled && currentSegment?.words ? (
+                  // Karaoke mode: render each word with individual highlight, respecting maxCpl line breaks
+                  (() => {
+                    const words = currentSegment.words!;
+                    const mode = ss?.karaokeMode || 'color';
+                    const isScale = mode === 'scale';
+                    // Build line-broken word groups using maxCpl
+                    const elements: React.ReactNode[] = [];
+                    let lineLen = 0;
+                    for (let i = 0; i < words.length; i++) {
+                      const w = words[i];
+                      const wLen = w.word.length;
+                      const needed = lineLen > 0 ? lineLen + 1 + wLen : wLen;
+                      if (lineLen > 0 && needed > maxCpl) {
+                        // Insert line break
+                        elements.push(<br key={`br-${i}`} />);
+                        lineLen = wLen;
+                      } else {
+                        lineLen = needed;
+                      }
+                      // Clamp active window: min 4 frames (guarantees 3 visible after transition), max 10 frames
+                      const fps = frameRate || 25;
+                      const frameDurMs = 1000 / fps;
+                      const minDurationMs = frameDurMs * 4;
+                      const maxDurationMs = frameDurMs * 10;
+                      const naturalDuration = w.to - w.from;
+                      const clampedDuration = Math.min(Math.max(naturalDuration, minDurationMs), maxDurationMs);
+                      const effectiveTo = w.from + clampedDuration;
+                      const isActive = currentTimeMs >= w.from && currentTimeMs <= effectiveTo;
+                      const isPast = currentTimeMs > effectiveTo;
+                      // Adaptive scale: shorter words get a bigger factor so they're visually noticeable
+                      const scaleFactor = wLen <= 1 ? 1.6 : wLen <= 2 ? 1.5 : wLen <= 4 ? 1.35 : 1.25;
+                      // Always reserve space for scaled state so layout doesn't shift
+                      const pad = isScale ? `0 ${Math.ceil(wLen * (scaleFactor - 1) * 2.5)}px` : undefined;
+                      // Check if next word will cause a line break (so we skip the trailing space)
+                      const isLastOnLine = i === words.length - 1 ||
+                        (lineLen + 1 + words[i + 1].word.length > maxCpl);
+                      elements.push(
+                        <span key={i} style={{
+                          color: isScale
+                            ? (isActive ? karaokeColor : (ss?.color || '#fff'))
+                            : (isActive || isPast ? karaokeColor : (ss?.color || '#fff')),
+                          display: 'inline-block',
+                          transform: isScale && isActive ? `scale(${scaleFactor})` : 'scale(1)',
+                          transformOrigin: 'center bottom',
+                          transition: isScale ? 'transform 0.1s ease, color 0.1s ease' : 'color 0.08s ease',
+                          padding: pad,
+                        }}>
+                          {w.word}{isLastOnLine ? '' : ' '}
+                        </span>
+                      );
+                    }
+                    return elements;
+                  })()
+                ) : (
+                  // Normal mode: plain text
+                  currentSubtitle
+                )}
               </span>
             </div>
           );
